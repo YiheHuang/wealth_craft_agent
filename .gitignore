@@ -1,0 +1,25 @@
+# Build artifacts
+**/bin/
+**/obj/
+
+# IDE
+.vs/
+.vscode/
+*.user
+*.suo
+*.cache
+
+# Secrets & local env
+.env
+
+# Project/solution files (ignore project metadata, keep source only)
+*.sln
+*.slnx
+*.csproj
+*.props
+*.targets
+NuGet.Config
+NuGet/
+
+# Keep only source files under src by default conventions
+# (tracked files still need to be cleaned once during history rewrite)

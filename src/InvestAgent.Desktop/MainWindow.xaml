@@ -1,0 +1,292 @@
+﻿<Window x:Class="InvestAgent.Desktop.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        Title="InvestAgent Desktop" Height="920" Width="1450">
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="1.1*"/>
+            <RowDefinition Height="1.6*"/>
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="2*"/>
+            <ColumnDefinition Width="3*"/>
+        </Grid.ColumnDefinitions>
+
+        <Grid Grid.Row="0" Grid.ColumnSpan="2" Margin="0,0,0,6">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <StackPanel Grid.Row="0" Orientation="Horizontal">
+                <TextBox Width="980" Height="34" Margin="0,0,8,0"
+                         ToolTip="仅支持输入股票代码或股票名称，例如：600519 / 贵州茅台"
+                         Text="{Binding UserInput, UpdateSourceTrigger=PropertyChanged}" />
+                <Button Width="120" Height="34" Content="开始分析" Command="{Binding RunCommand}" />
+                <TextBlock Margin="12,8,0,0" FontWeight="Bold" Text="{Binding ResolvedSymbol, StringFormat=标的: {0}}"/>
+            </StackPanel>
+
+            <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,8,0,0">
+                <TextBlock VerticalAlignment="Center" Text="分析历史:" Margin="0,0,8,0"/>
+                <ComboBox Width="860"
+                          ItemsSource="{Binding HistoryItems}"
+                          SelectedItem="{Binding SelectedHistoryItem}"
+                          DisplayMemberPath="DisplayText"/>
+                <Button Width="100" Height="30" Margin="8,0,0,0" Content="加载历史" Command="{Binding LoadSelectedHistoryCommand}" />
+                <Button Width="100" Height="30" Margin="8,0,0,0" Content="刷新历史" Command="{Binding RefreshHistoryCommand}" />
+            </StackPanel>
+        </Grid>
+
+        <GroupBox Grid.Row="1" Grid.Column="0" Header="Agent 步骤流" Margin="0,10,8,8">
+            <ListBox ItemsSource="{Binding Steps}">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <Border BorderBrush="#DDD" BorderThickness="0,0,0,1" Padding="4">
+                            <StackPanel>
+                                <TextBlock FontWeight="Bold" Text="{Binding Title}" />
+                                <TextBlock TextWrapping="Wrap" Text="{Binding Content}" />
+                            </StackPanel>
+                        </Border>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </GroupBox>
+
+        <GroupBox Grid.Row="1" Grid.Column="1" Header="LLM 分析与总结" Margin="8,10,0,8">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <TextBlock Margin="8" TextWrapping="Wrap" Text="{Binding FinalResponse}" />
+            </ScrollViewer>
+        </GroupBox>
+
+        <TabControl Grid.Row="2" Grid.ColumnSpan="2" Margin="0,8,0,0">
+            <TabItem Header="近一年月K线(完整)">
+                <Grid Margin="8">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                    <Button Grid.Row="0" Content="切换图表/表格" Width="120" Command="{Binding ToggleMonthlyViewCommand}" Margin="0,0,0,8"/>
+
+                    <Grid Grid.Row="1">
+                        <Grid.Style>
+                            <Style TargetType="Grid">
+                                <Setter Property="Visibility" Value="Visible"/>
+                                <Style.Triggers><DataTrigger Binding="{Binding ShowMonthlyChart}" Value="False"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers>
+                            </Style>
+                        </Grid.Style>
+                        <Border BorderBrush="#DDD" BorderThickness="1" Padding="10" Background="#FAFAFA">
+                            <Viewbox Stretch="Fill">
+                                <Canvas Width="1100" Height="320">
+                                    <Line X1="60" Y1="20" X2="60" Y2="280" Stroke="#777" StrokeThickness="1"/>
+                                    <Line X1="60" Y1="280" X2="1080" Y2="280" Stroke="#777" StrokeThickness="1"/>
+                                    <ItemsControl ItemsSource="{Binding MonthlySegments}">
+                                        <ItemsControl.ItemsPanel><ItemsPanelTemplate><Canvas /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Line X1="{Binding X1}" Y1="{Binding Y1}" X2="{Binding X2}" Y2="{Binding Y2}" Stroke="{Binding Stroke}" StrokeThickness="2"/>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <ItemsControl ItemsSource="{Binding MonthlyYTicks}">
+                                        <ItemsControl.ItemsPanel><ItemsPanelTemplate><Canvas /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemContainerStyle>
+                                            <Style TargetType="ContentPresenter">
+                                                <Setter Property="Canvas.Left" Value="{Binding X}"/>
+                                                <Setter Property="Canvas.Top" Value="{Binding Y}"/>
+                                            </Style>
+                                        </ItemsControl.ItemContainerStyle>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate><TextBlock FontSize="11" Text="{Binding Label}"/></DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <ItemsControl ItemsSource="{Binding MonthlyXTicks}">
+                                        <ItemsControl.ItemsPanel><ItemsPanelTemplate><Canvas /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemContainerStyle>
+                                            <Style TargetType="ContentPresenter">
+                                                <Setter Property="Canvas.Left" Value="{Binding X}"/>
+                                                <Setter Property="Canvas.Top" Value="{Binding Y}"/>
+                                            </Style>
+                                        </ItemsControl.ItemContainerStyle>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate><TextBlock FontSize="11" Text="{Binding Label}"/></DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </Canvas>
+                            </Viewbox>
+                        </Border>
+                    </Grid>
+
+                    <DataGrid Grid.Row="1" ItemsSource="{Binding MonthlyKLines}" AutoGenerateColumns="False" IsReadOnly="True">
+                        <DataGrid.Style>
+                            <Style TargetType="DataGrid">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                                <Style.Triggers><DataTrigger Binding="{Binding ShowMonthlyChart}" Value="False"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers>
+                            </Style>
+                        </DataGrid.Style>
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="日期" Binding="{Binding Date, StringFormat=yyyy-MM-dd}" />
+                            <DataGridTextColumn Header="开盘" Binding="{Binding Open}" />
+                            <DataGridTextColumn Header="最高" Binding="{Binding High}" />
+                            <DataGridTextColumn Header="最低" Binding="{Binding Low}" />
+                            <DataGridTextColumn Header="收盘" Binding="{Binding Close}" />
+                            <DataGridTextColumn Header="成交量" Binding="{Binding Volume}" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
+            </TabItem>
+
+            <TabItem Header="近三个月日K线(完整)">
+                <Grid Margin="8">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                    <Button Grid.Row="0" Content="切换图表/表格" Width="120" Command="{Binding ToggleDailyViewCommand}" Margin="0,0,0,8"/>
+
+                    <Grid Grid.Row="1">
+                        <Grid.Style>
+                            <Style TargetType="Grid">
+                                <Setter Property="Visibility" Value="Visible"/>
+                                <Style.Triggers><DataTrigger Binding="{Binding ShowDailyChart}" Value="False"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers>
+                            </Style>
+                        </Grid.Style>
+                        <Border BorderBrush="#DDD" BorderThickness="1" Padding="10" Background="#FAFAFA">
+                            <Viewbox Stretch="Fill">
+                                <Canvas Width="1100" Height="320">
+                                    <Line X1="60" Y1="20" X2="60" Y2="280" Stroke="#777" StrokeThickness="1"/>
+                                    <Line X1="60" Y1="280" X2="1080" Y2="280" Stroke="#777" StrokeThickness="1"/>
+                                    <ItemsControl ItemsSource="{Binding DailySegments}">
+                                        <ItemsControl.ItemsPanel><ItemsPanelTemplate><Canvas /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Line X1="{Binding X1}" Y1="{Binding Y1}" X2="{Binding X2}" Y2="{Binding Y2}" Stroke="{Binding Stroke}" StrokeThickness="2"/>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <ItemsControl ItemsSource="{Binding DailyYTicks}">
+                                        <ItemsControl.ItemsPanel><ItemsPanelTemplate><Canvas /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemContainerStyle>
+                                            <Style TargetType="ContentPresenter">
+                                                <Setter Property="Canvas.Left" Value="{Binding X}"/>
+                                                <Setter Property="Canvas.Top" Value="{Binding Y}"/>
+                                            </Style>
+                                        </ItemsControl.ItemContainerStyle>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate><TextBlock FontSize="11" Text="{Binding Label}"/></DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <ItemsControl ItemsSource="{Binding DailyXTicks}">
+                                        <ItemsControl.ItemsPanel><ItemsPanelTemplate><Canvas /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemContainerStyle>
+                                            <Style TargetType="ContentPresenter">
+                                                <Setter Property="Canvas.Left" Value="{Binding X}"/>
+                                                <Setter Property="Canvas.Top" Value="{Binding Y}"/>
+                                            </Style>
+                                        </ItemsControl.ItemContainerStyle>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate><TextBlock FontSize="11" Text="{Binding Label}"/></DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </Canvas>
+                            </Viewbox>
+                        </Border>
+                    </Grid>
+
+                    <DataGrid Grid.Row="1" ItemsSource="{Binding DailyKLines}" AutoGenerateColumns="False" IsReadOnly="True">
+                        <DataGrid.Style>
+                            <Style TargetType="DataGrid">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                                <Style.Triggers><DataTrigger Binding="{Binding ShowDailyChart}" Value="False"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers>
+                            </Style>
+                        </DataGrid.Style>
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="日期" Binding="{Binding Date, StringFormat=yyyy-MM-dd}" />
+                            <DataGridTextColumn Header="开盘" Binding="{Binding Open}" />
+                            <DataGridTextColumn Header="最高" Binding="{Binding High}" />
+                            <DataGridTextColumn Header="最低" Binding="{Binding Low}" />
+                            <DataGridTextColumn Header="收盘" Binding="{Binding Close}" />
+                            <DataGridTextColumn Header="成交量" Binding="{Binding Volume}" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
+            </TabItem>
+
+            <TabItem Header="新闻动态(完整)">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0" Margin="6,6,6,4" FontWeight="Bold"
+                               Text="{Binding CompanyNewsItems.Count, StringFormat=公司新闻（共 {0} 条）}" />
+                    <DataGrid Grid.Row="1" ItemsSource="{Binding CompanyNewsItems}" AutoGenerateColumns="False" IsReadOnly="True">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="时间" Binding="{Binding PublishTime, StringFormat=yyyy-MM-dd HH:mm}" Width="150" />
+                            <DataGridTextColumn Header="来源" Binding="{Binding Source}" Width="180" />
+                            <DataGridTemplateColumn Header="标题(点击打开)" Width="360">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBlock TextWrapping="Wrap">
+                                            <Hyperlink NavigateUri="{Binding Url}" RequestNavigate="NewsLink_RequestNavigate">
+                                                <Run Text="{Binding Title}" />
+                                            </Hyperlink>
+                                        </TextBlock>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTextColumn Header="摘要" Binding="{Binding Summary}" Width="*" />
+                            <DataGridTextColumn Header="备注" Binding="{Binding DataNote}" Width="160" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+
+                    <TextBlock Grid.Row="2" Margin="6,10,6,4" FontWeight="Bold"
+                               Text="{Binding IndustryNewsItems.Count, StringFormat=行业新闻（共 {0} 条）}" />
+                    <DataGrid Grid.Row="3" ItemsSource="{Binding IndustryNewsItems}" AutoGenerateColumns="False" IsReadOnly="True">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="时间" Binding="{Binding PublishTime, StringFormat=yyyy-MM-dd HH:mm}" Width="150" />
+                            <DataGridTextColumn Header="来源" Binding="{Binding Source}" Width="180" />
+                            <DataGridTemplateColumn Header="标题(点击打开)" Width="360">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBlock TextWrapping="Wrap">
+                                            <Hyperlink NavigateUri="{Binding Url}" RequestNavigate="NewsLink_RequestNavigate">
+                                                <Run Text="{Binding Title}" />
+                                            </Hyperlink>
+                                        </TextBlock>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTextColumn Header="摘要" Binding="{Binding Summary}" Width="*" />
+                            <DataGridTextColumn Header="备注" Binding="{Binding DataNote}" Width="160" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
+            </TabItem>
+
+            <TabItem Header="财务情况">
+                <Grid Margin="8">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0" Margin="0,0,0,8" TextWrapping="Wrap" FontFamily="Consolas" Text="{Binding MetricsSummary}"/>
+
+                    <DataGrid Grid.Row="1" ItemsSource="{Binding FinancialHistoryItems}" AutoGenerateColumns="False" IsReadOnly="True">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="报告期" Binding="{Binding ReportDate, StringFormat=yyyy-MM-dd}" Width="140"/>
+                            <DataGridTextColumn Header="ROE(%)" Binding="{Binding ROE, StringFormat=F2}" Width="90"/>
+                            <DataGridTextColumn Header="ROA(%)" Binding="{Binding ROA, StringFormat=F2}" Width="90"/>
+                            <DataGridTextColumn Header="毛利率(%)" Binding="{Binding GrossMargin, StringFormat=F2}" Width="110"/>
+                            <DataGridTextColumn Header="净利率(%)" Binding="{Binding NetMargin, StringFormat=F2}" Width="110"/>
+                            <DataGridTextColumn Header="营收增长(%)" Binding="{Binding RevenueGrowth, StringFormat=F2}" Width="110"/>
+                            <DataGridTextColumn Header="净利增长(%)" Binding="{Binding ProfitGrowth, StringFormat=F2}" Width="110"/>
+                            <DataGridTextColumn Header="资产负债率(%)" Binding="{Binding DebtRatio, StringFormat=F2}" Width="120"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
+            </TabItem>
+        </TabControl>
+    </Grid>
+</Window>
