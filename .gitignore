@@ -11,15 +11,6 @@
 
 # Secrets & local env
 .env
+.env.local
 
-# Project/solution files (ignore project metadata, keep source only)
-*.sln
-*.slnx
-*.csproj
-*.props
-*.targets
-NuGet.Config
-NuGet/
-
-# Keep only source files under src by default conventions
-# (tracked files still need to be cleaned once during history rewrite)
+# Keep project files tracked so fresh clone can build/run

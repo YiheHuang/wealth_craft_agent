@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/InvestAgent.Console/InvestAgent.Console.csproj" />
+    <Project Path="src/InvestAgent.Desktop/InvestAgent.Desktop.csproj" />
+    <Project Path="src/InvestAgent.Core/InvestAgent.Core.csproj" />
+    <Project Path="src/InvestAgent.Tests/InvestAgent.Tests.csproj" />
+  </Folder>
+</Solution>
