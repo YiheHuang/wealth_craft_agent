@@ -30,7 +30,7 @@ public class CompositeStockDataServiceTests
     }
 
     [Fact]
-    public async Task Composite_Flow_Should_Return_DataGap_When_FinnhubKey_Missing()
+    public async Task Composite_Flow_Should_Return_Empty_When_Flow_Feature_Removed()
     {
         var options = new AgentOptions
         {
@@ -48,7 +48,6 @@ public class CompositeStockDataServiceTests
         var composite = new CompositeStockDataService(yahoo, news, flow, eastMoney);
 
         var result = await composite.GetCapitalFlowAsync("AAPL", 10);
-        Assert.NotEmpty(result);
-        Assert.False(result[0].IsDataAvailable);
+        Assert.Empty(result);
     }
 }

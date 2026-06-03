@@ -14,3 +14,7 @@
 .env.local
 
 # Keep project files tracked so fresh clone can build/run
+
+project_requirement.txt
+
+NuGet/
