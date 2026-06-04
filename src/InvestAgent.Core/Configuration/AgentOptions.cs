@@ -5,7 +5,7 @@ public class AgentOptions
     public const string SectionName = "AI";
     public string ApiKey { get; set; } = "";
     public string Endpoint { get; set; } = "https://yunwu.ai/v1";
-    public string ModelId { get; set; } = "gpt-4o-mini";
+    public string ModelId { get; set; } = "gpt-4o";
     public string? ProxyUrl { get; set; }
     public string DataSource { get; set; } = "composite";  // "composite" | "yahoo" | "eastmoney"
     public string YahooApiKey { get; set; } = "";

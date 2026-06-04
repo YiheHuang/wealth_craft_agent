@@ -20,6 +20,7 @@ public class AnalysisSessionState
     public string AgentCResult { get; set; } = "";
     public string AgentDResult { get; set; } = "";
     public string FinalRiskAdvice { get; set; } = "";
+    public string InitialAnalysisResponse { get; set; } = "";
     public string FinalResponse { get; set; } = "";
 
     public List<StockKLine> DailyKLines { get; set; } = new();

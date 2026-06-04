@@ -234,6 +234,8 @@ public class SessionAnalysisOrchestrator : ISessionAnalysisOrchestrator
 
         context.State.FinalRiskAdvice = advice;
         context.State.FinalResponse = BuildFinalResponse(context.State, advice, executedTasks, isInitialAnalysis, userIntent);
+        if (isInitialAnalysis || string.IsNullOrWhiteSpace(context.State.InitialAnalysisResponse))
+            context.State.InitialAnalysisResponse = context.State.FinalResponse;
         AddConversation(context, "assistant", context.State.FinalResponse, turnIndex);
         steps.Add(new AgentStep
         {

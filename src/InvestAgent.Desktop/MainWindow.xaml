@@ -4,6 +4,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:navigation="clr-namespace:System.Windows.Navigation;assembly=PresentationFramework"
+        xmlns:converters="clr-namespace:InvestAgent.Desktop.Converters"
         mc:Ignorable="d"
         Title="Wealth Craft Agent"
         Width="1440"
@@ -13,6 +14,8 @@
         WindowStartupLocation="CenterScreen"
         Background="#F3F6FB">
     <Window.Resources>
+        <converters:MarkdownToFlowDocumentConverter x:Key="MarkdownToFlowDocumentConverter" />
+
         <Style x:Key="CardBorderStyle" TargetType="Border">
             <Setter Property="Background" Value="White" />
             <Setter Property="BorderBrush" Value="#E2E8F0" />
@@ -138,6 +141,24 @@
                 </DataTrigger>
             </Style.Triggers>
         </Style>
+
+        <Style x:Key="UserOnlyVisibilityStyle" TargetType="FrameworkElement">
+            <Setter Property="Visibility" Value="Collapsed" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsUser}" Value="True">
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="AgentOnlyVisibilityStyle" TargetType="FrameworkElement">
+            <Setter Property="Visibility" Value="Visible" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsUser}" Value="True">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
     </Window.Resources>
 
     <Grid Margin="18">
@@ -148,31 +169,27 @@
 
         <Border Grid.Row="0"
                 Style="{StaticResource CardBorderStyle}"
-                Padding="18"
-                Margin="0,0,0,16">
+                Padding="14"
+                Margin="0,0,0,14">
             <Grid>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="2.1*" />
-                    <ColumnDefinition Width="2.25*" />
-                    <ColumnDefinition Width="2*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="2.6*" />
+                    <ColumnDefinition Width="1.8*" />
                 </Grid.ColumnDefinitions>
 
-                <StackPanel Grid.Column="0" Margin="0,0,18,0">
+                <StackPanel Grid.Column="0" Margin="0,0,18,0" VerticalAlignment="Center">
                     <TextBlock Text="Wealth Craft Agent"
-                               FontSize="26"
+                               FontSize="22"
                                FontWeight="Bold"
                                Foreground="#0F172A" />
-                    <TextBlock Margin="0,8,0,0"
-                               Text="先建立股票会话，再在当前会话里持续追问，让 Agent A 协调 B/C/D 增量更新图表、新闻与财务。"
-                               TextWrapping="Wrap"
-                               Foreground="#475569"
-                               FontSize="13" />
                 </StackPanel>
 
-                <StackPanel Grid.Column="1" Margin="0,0,18,0">
-                    <TextBlock Text="新建分析会话"
-                               Style="{StaticResource SectionTitleStyle}" />
-                    <Grid Margin="0,10,0,0">
+                <Grid Grid.Column="1" Margin="0,0,18,0" VerticalAlignment="Center">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <Grid Margin="0">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="128" />
@@ -192,23 +209,15 @@
                                 Style="{StaticResource PrimaryButtonStyle}"
                                 Command="{Binding RunCommand}" />
                     </Grid>
-                    <TextBlock Margin="0,8,0,0"
-                               Text="这里只输入股票代码或股票名称；详细自然语言需求请在左下会话追问区继续。"
-                               Style="{StaticResource MutedTextStyle}"
-                               TextWrapping="Wrap" />
-                </StackPanel>
+                </Grid>
 
-                <Grid Grid.Column="2">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                    </Grid.RowDefinitions>
-
-                    <TextBlock Grid.Row="0"
-                               Text="分析历史"
-                               Style="{StaticResource SectionTitleStyle}" />
-
-                    <Grid Grid.Row="1" Margin="0,10,0,0">
+                <Expander Grid.Column="2"
+                          Header="分析历史"
+                          Foreground="#0F172A"
+                          FontWeight="SemiBold"
+                          VerticalAlignment="Top"
+                          IsExpanded="False">
+                    <Grid Margin="0,10,0,0">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="1.05*" />
                             <ColumnDefinition Width="1.2*" />
@@ -275,7 +284,7 @@
                                     Command="{Binding LoadSelectedHistoryCommand}" />
                         </StackPanel>
                     </Grid>
-                </Grid>
+                </Expander>
             </Grid>
         </Border>
 
@@ -295,10 +304,9 @@
                         <Style BasedOn="{StaticResource CardTabItemStyle}" TargetType="TabItem" />
                     </TabControl.Resources>
 
-                    <TabItem Header="LLM分析与总结">
+                    <TabItem Header="基本情况分析">
                         <Grid Margin="4">
                             <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="*" />
                             </Grid.RowDefinitions>
@@ -310,31 +318,16 @@
                                     CornerRadius="14"
                                     Padding="14"
                                     Margin="0,0,0,12">
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="180" />
-                                        <ColumnDefinition Width="*" />
-                                    </Grid.ColumnDefinitions>
-                                    <StackPanel Grid.Column="0">
-                                        <TextBlock Text="当前会话"
-                                                   Style="{StaticResource MutedTextStyle}" />
-                                        <TextBlock Margin="0,6,0,0"
-                                                   Text="{Binding CurrentSessionLabel}"
-                                                   FontSize="14"
-                                                   FontWeight="SemiBold"
-                                                   Foreground="#0F172A"
-                                                   TextWrapping="Wrap" />
-                                    </StackPanel>
-                                    <StackPanel Grid.Column="1" Margin="18,0,0,0">
-                                        <TextBlock Text="当前标的"
-                                                   Style="{StaticResource MutedTextStyle}" />
-                                        <TextBlock Margin="0,6,0,0"
-                                                   Text="{Binding ResolvedSymbol}"
-                                                   FontSize="24"
-                                                   FontWeight="Bold"
-                                                   Foreground="#0F172A" />
-                                    </StackPanel>
-                                </Grid>
+                                <StackPanel>
+                                    <TextBlock Text="当前会话"
+                                               Style="{StaticResource MutedTextStyle}" />
+                                    <TextBlock Margin="0,6,0,0"
+                                               Text="{Binding CurrentSessionDisplay}"
+                                               FontSize="15"
+                                               FontWeight="SemiBold"
+                                               Foreground="#0F172A"
+                                               TextWrapping="Wrap" />
+                                </StackPanel>
                             </Border>
 
                             <Border Grid.Row="1"
@@ -342,36 +335,10 @@
                                     BorderBrush="#E2E8F0"
                                     BorderThickness="1"
                                     CornerRadius="14"
-                                    Padding="14"
-                                    Margin="0,0,0,12">
-                                <StackPanel>
-                                    <TextBlock Text="主要业务"
-                                               Style="{StaticResource SectionTitleStyle}" />
-                                    <TextBlock Margin="0,10,0,0"
-                                               Text="{Binding MainBusiness}"
-                                               TextWrapping="Wrap"
-                                               Foreground="#0F172A"
-                                               FontSize="14" />
-                                </StackPanel>
-                            </Border>
-
-                            <Border Grid.Row="2"
-                                    Background="#F8FAFC"
-                                    BorderBrush="#E2E8F0"
-                                    BorderThickness="1"
-                                    CornerRadius="14"
                                     Padding="14">
-                                <ScrollViewer VerticalScrollBarVisibility="Auto">
-                                    <StackPanel>
-                                        <TextBlock Text="最终分析与风险提示"
-                                                   Style="{StaticResource SectionTitleStyle}" />
-                                        <TextBlock Margin="0,12,0,0"
-                                                   Text="{Binding FinalResponse}"
-                                                   TextWrapping="Wrap"
-                                                   Foreground="#0F172A"
-                                                   FontSize="14" />
-                                    </StackPanel>
-                                </ScrollViewer>
+                                <FlowDocumentScrollViewer VerticalScrollBarVisibility="Auto"
+                                                          IsToolBarVisible="False"
+                                                          Document="{Binding BasicAnalysisResponse, Converter={StaticResource MarkdownToFlowDocumentConverter}}" />
                             </Border>
                         </Grid>
                     </TabItem>
@@ -441,7 +408,13 @@
                                                                    Text="{Binding Content}"
                                                                    TextWrapping="Wrap"
                                                                    Foreground="#0F172A"
-                                                                   FontSize="14" />
+                                                                   FontSize="14"
+                                                                   Style="{StaticResource UserOnlyVisibilityStyle}" />
+                                                        <FlowDocumentScrollViewer Margin="0,8,0,0"
+                                                                                  IsToolBarVisible="False"
+                                                                                  VerticalScrollBarVisibility="Hidden"
+                                                                                  Document="{Binding Content, Converter={StaticResource MarkdownToFlowDocumentConverter}}"
+                                                                                  Style="{StaticResource AgentOnlyVisibilityStyle}" />
                                                         <TextBlock Margin="0,8,0,0"
                                                                    Text="{Binding Timestamp, StringFormat={}{0:yyyy-MM-dd HH:mm:ss}}"
                                                                    Foreground="#64748B"

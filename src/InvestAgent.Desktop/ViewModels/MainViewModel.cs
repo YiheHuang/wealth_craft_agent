@@ -30,10 +30,12 @@ public class MainViewModel : INotifyPropertyChanged
     private string _userInput = "600519";
     private string _chatInput = "";
     private string _finalResponse = "";
+    private string _basicAnalysisResponse = "";
     private string _resolvedSymbol = "";
     private string _metricsSummary = "";
     private string _mainBusiness = "";
     private string _currentSessionLabel = "当前未激活会话";
+    private string _currentSessionDisplay = "当前未激活会话";
     private bool _showDailyChart = true;
     private bool _showMonthlyChart = true;
     private HistoryStockGroupViewModel? _selectedHistoryGroup;
@@ -90,10 +92,12 @@ public class MainViewModel : INotifyPropertyChanged
     public string UserInput { get => _userInput; set { _userInput = value; OnPropertyChanged(); } }
     public string ChatInput { get => _chatInput; set { _chatInput = value; OnPropertyChanged(); } }
     public string FinalResponse { get => _finalResponse; set { _finalResponse = value; OnPropertyChanged(); } }
+    public string BasicAnalysisResponse { get => _basicAnalysisResponse; set { _basicAnalysisResponse = value; OnPropertyChanged(); } }
     public string ResolvedSymbol { get => _resolvedSymbol; set { _resolvedSymbol = value; OnPropertyChanged(); } }
     public string MetricsSummary { get => _metricsSummary; set { _metricsSummary = value; OnPropertyChanged(); } }
     public string MainBusiness { get => _mainBusiness; set { _mainBusiness = value; OnPropertyChanged(); } }
     public string CurrentSessionLabel { get => _currentSessionLabel; set { _currentSessionLabel = value; OnPropertyChanged(); } }
+    public string CurrentSessionDisplay { get => _currentSessionDisplay; set { _currentSessionDisplay = value; OnPropertyChanged(); } }
     public bool HasActiveSession => _currentSessionContext is not null;
     public bool ShowDailyChart { get => _showDailyChart; set { _showDailyChart = value; OnPropertyChanged(); } }
     public bool ShowMonthlyChart { get => _showMonthlyChart; set { _showMonthlyChart = value; OnPropertyChanged(); } }
@@ -213,8 +217,12 @@ public class MainViewModel : INotifyPropertyChanged
         ResolvedSymbol = context.State.Symbol;
         MainBusiness = context.State.MainBusiness;
         FinalResponse = context.State.FinalResponse;
+        BasicAnalysisResponse = string.IsNullOrWhiteSpace(context.State.InitialAnalysisResponse)
+            ? context.State.FinalResponse
+            : context.State.InitialAnalysisResponse;
         MetricsSummary = BuildFinancialSummary(context.State.FinancialHistory);
         CurrentSessionLabel = $"{context.State.Symbol} {context.State.StockName} | {context.State.SessionTitle}";
+        CurrentSessionDisplay = $"{context.State.Symbol} {context.State.StockName} |\n{context.State.SessionTitle}";
 
         DailyKLines.Clear();
         MonthlyKLines.Clear();
@@ -297,9 +305,11 @@ public class MainViewModel : INotifyPropertyChanged
         DailyXTicks.Clear();
         MonthlyXTicks.Clear();
         FinalResponse = "";
+        BasicAnalysisResponse = "";
         MetricsSummary = "";
         MainBusiness = "";
         CurrentSessionLabel = "当前未激活会话";
+        CurrentSessionDisplay = "当前未激活会话";
     }
 
     private async Task<string> ResolveSymbolAsync(string input)
