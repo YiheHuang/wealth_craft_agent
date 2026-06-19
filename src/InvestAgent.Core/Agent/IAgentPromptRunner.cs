@@ -11,4 +11,13 @@ public interface IAgentPromptRunner
         IConversationMemory? memory = null,
         string? stateSummary = null,
         int recentMessageCount = 12);
+
+    Task<string> RunPromptStreamingAsync(
+        string systemPrompt,
+        string userPrompt,
+        Func<string, Task>? onPartial = null,
+        double temperature = 0.3,
+        IConversationMemory? memory = null,
+        string? stateSummary = null,
+        int recentMessageCount = 12);
 }

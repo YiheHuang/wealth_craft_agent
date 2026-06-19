@@ -32,6 +32,7 @@ internal static class MarkdownFlowDocumentBuilder
 
     public static FlowDocument Build(string markdown)
     {
+        markdown = NormalizeMarkdown(markdown);
         var doc = new FlowDocument
         {
             FontFamily = new FontFamily("Microsoft YaHei UI"),
@@ -116,6 +117,21 @@ internal static class MarkdownFlowDocumentBuilder
         }
 
         return doc;
+    }
+
+    private static string NormalizeMarkdown(string markdown)
+    {
+        if (string.IsNullOrWhiteSpace(markdown))
+            return "";
+
+        var normalized = markdown.Replace("\r\n", "\n");
+        normalized = Regex.Replace(normalized, @"(?<!\n)(#{2,6})", "\n$1");
+        normalized = Regex.Replace(normalized, @"(?m)^(#{1,6})(\S)", "$1 $2");
+        normalized = Regex.Replace(normalized, @"[•·]\s*", "- ");
+        normalized = Regex.Replace(normalized, @"(?m)^(\d+)\.\s*", "$1. ");
+        normalized = Regex.Replace(normalized, @"(?m)^(####?\s*[^\n#]+?)(\d+\.)", "$1\n$2");
+        normalized = Regex.Replace(normalized, @"\n{3,}", "\n\n");
+        return normalized.Trim();
     }
 
     private static Paragraph BuildHeading(string text, int level)

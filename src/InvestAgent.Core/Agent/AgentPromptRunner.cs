@@ -2,6 +2,7 @@ using InvestAgent.Core.Memory;
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
 using Microsoft.SemanticKernel.Connectors.OpenAI;
+using System.Text;
 
 namespace InvestAgent.Core.Agent;
 
@@ -22,6 +23,25 @@ public class AgentPromptRunner : IAgentPromptRunner
         string? stateSummary = null,
         int recentMessageCount = 12)
     {
+        return await RunPromptStreamingAsync(
+            systemPrompt,
+            userPrompt,
+            null,
+            temperature,
+            memory,
+            stateSummary,
+            recentMessageCount);
+    }
+
+    public async Task<string> RunPromptStreamingAsync(
+        string systemPrompt,
+        string userPrompt,
+        Func<string, Task>? onPartial = null,
+        double temperature = 0.3,
+        IConversationMemory? memory = null,
+        string? stateSummary = null,
+        int recentMessageCount = 12)
+    {
         var history = await BuildHistoryAsync(systemPrompt, userPrompt, memory, stateSummary, recentMessageCount);
 
         var settings = new OpenAIPromptExecutionSettings
@@ -30,8 +50,18 @@ public class AgentPromptRunner : IAgentPromptRunner
             MaxTokens = 4096
         };
 
-        var result = await _chatCompletionService.GetChatMessageContentAsync(history, settings);
-        return result.Content ?? "";
+        var builder = new StringBuilder();
+        await foreach (var chunk in _chatCompletionService.GetStreamingChatMessageContentsAsync(history, settings))
+        {
+            if (string.IsNullOrWhiteSpace(chunk.Content))
+                continue;
+
+            builder.Append(chunk.Content);
+            if (onPartial is not null)
+                await onPartial(builder.ToString());
+        }
+
+        return builder.ToString();
     }
 
     private static async Task<ChatHistory> BuildHistoryAsync(

@@ -17,37 +17,61 @@ public class AgentDService : ISubAgentService
         _promptRunner = promptRunner;
     }
 
-    public async Task<SubAgentExecutionResult> ExecuteAsync(AgentSessionContext context, SubAgentTask task)
+    public async Task<SubAgentExecutionResult> ExecuteAsync(AgentSessionContext context, SubAgentTask task, IAnalysisStreamingObserver? observer = null, int triggerTurnIndex = 0)
     {
         var result = new SubAgentExecutionResult { AgentName = AgentName };
+        var isInitialAnalysis = task.IsInitialAnalysis;
         var financialYears = task.FinancialYears ?? context.State.FinancialYears;
         var reportCount = Math.Max(4, financialYears * 4);
 
-        result.WorkflowSteps.Add(new AgentStep
+        await AppendStepAsync(context, result, new AgentStep
         {
             Type = AgentStepType.Thought,
             Content = $"围绕 {context.State.Symbol} 的财务请求展开分析，目标窗口 {financialYears} 年。"
-        });
+        }, observer, triggerTurnIndex);
 
         var history = await _stockDataService.GetKeyMetricsHistoryAsync(context.State.Symbol, reportCount);
-        result.WorkflowSteps.Add(new AgentStep
+        await AppendStepAsync(context, result, new AgentStep
         {
             Type = AgentStepType.Action,
             FunctionName = "get_key_metrics_history",
             FunctionArgs = $"{{\"symbol\":\"{context.State.Symbol}\",\"maxReports\":{reportCount}}}",
             Content = "抓取财务序列并评估趋势。"
-        });
-        result.WorkflowSteps.Add(new AgentStep
+        }, observer, triggerTurnIndex);
+        await AppendStepAsync(context, result, new AgentStep
         {
             Type = AgentStepType.Observation,
             FunctionName = "get_key_metrics_history",
             FunctionResult = $"财务记录 {history.Count} 条",
             Content = "财务序列抓取完成。"
-        });
+        }, observer, triggerTurnIndex);
 
-        var narrative = await _promptRunner.RunPromptAsync(
-            "你是 Agent D，负责财务分析。请围绕盈利能力、增长、负债、趋势一致性进行细致分析。",
-            BuildPrompt(context.State.Symbol, task.Instruction, financialYears, history),
+        var dataPatch = new SessionStatePatch
+        {
+            FinancialYears = financialYears,
+            FinancialHistory = history.OrderByDescending(x => x.ReportDate).ToList()
+        };
+        dataPatch.ApplyTo(context.State);
+        await NotifyStatePatchedAsync(context, dataPatch, observer);
+
+        await AppendStepAsync(context, result, new AgentStep
+        {
+            Type = AgentStepType.Action,
+            Content = "Agent D 正在生成财务趋势分析。"
+        }, observer, triggerTurnIndex);
+
+        var narrative = await _promptRunner.RunPromptStreamingAsync(
+            BuildSystemPrompt(isInitialAnalysis),
+            BuildPrompt(context.State.Symbol, task.Instruction, financialYears, history, isInitialAnalysis),
+            async partial =>
+            {
+                var patch = new SessionStatePatch
+                {
+                    AgentDResult = partial
+                };
+                patch.ApplyTo(context.State);
+                await NotifyStatePatchedAsync(context, patch, observer);
+            },
             0.2,
             context.Memory,
             BuildStateSummary(context.State));
@@ -59,15 +83,39 @@ public class AgentDService : ISubAgentService
             FinancialHistory = history.OrderByDescending(x => x.ReportDate).ToList(),
             AgentDResult = narrative
         };
-        result.WorkflowSteps.Add(new AgentStep
+        await AppendStepAsync(context, result, new AgentStep
         {
             Type = AgentStepType.Response,
             Content = "Agent D 已完成财务趋势分析。"
-        });
+        }, observer, triggerTurnIndex);
         return result;
     }
 
-    private static string BuildPrompt(string symbol, string instruction, int financialYears, List<KeyMetrics> history)
+    private async Task AppendStepAsync(AgentSessionContext context, SubAgentExecutionResult result, AgentStep step, IAnalysisStreamingObserver? observer, int triggerTurnIndex)
+    {
+        result.WorkflowSteps.Add(step);
+        if (observer is not null)
+            await observer.OnStepAddedAsync(context, AgentName, step, triggerTurnIndex);
+    }
+
+    private static async Task NotifyStatePatchedAsync(AgentSessionContext context, SessionStatePatch patch, IAnalysisStreamingObserver? observer)
+    {
+        if (observer is not null)
+            await observer.OnStatePatchedAsync(context, patch);
+    }
+
+    private static string BuildSystemPrompt(bool isInitialAnalysis)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("你是 Agent D，负责财务分析。请围绕盈利能力、增长、负债、趋势一致性进行细致分析。");
+        if (isInitialAnalysis)
+            sb.AppendLine("这是首次总览分析，请适度结构化，便于用户建立全局财务认知。");
+        else
+            sb.AppendLine("这是会话内追问，请优先回答用户当前最关心的财务问题，允许更自由地展开比较、解释和判断。");
+        return sb.ToString();
+    }
+
+    private static string BuildPrompt(string symbol, string instruction, int financialYears, List<KeyMetrics> history, bool isInitialAnalysis)
     {
         var sb = new StringBuilder();
         sb.AppendLine($"标的: {symbol}");
@@ -79,7 +127,10 @@ public class AgentDService : ISubAgentService
             sb.AppendLine($"{item.ReportDate:yyyy-MM-dd} | ROE={item.ROE:F2}% | ROA={item.ROA:F2}% | 毛利率={item.GrossMargin:F2}% | 净利率={item.NetMargin:F2}% | 营收增长={item.RevenueGrowth:F2}% | 净利增长={item.ProfitGrowth:F2}% | 负债率={item.DebtRatio:F2}%");
         }
         sb.AppendLine();
-        sb.AppendLine("请输出详细财务分析，包括：盈利能力、成长性、负债结构、趋势一致性、潜在风险。");
+        if (isInitialAnalysis)
+            sb.AppendLine("请输出较结构化的首次总览分析，建议覆盖：盈利能力、成长性、负债结构、趋势一致性、潜在风险。");
+        else
+            sb.AppendLine("请围绕用户当前追问自由分析。可以重点比较不同年份、解释指标变化原因、指出关键拐点，不必机械套固定模板。");
         return sb.ToString();
     }
 

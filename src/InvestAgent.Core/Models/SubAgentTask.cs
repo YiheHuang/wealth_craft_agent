@@ -4,6 +4,7 @@ public class SubAgentTask
 {
     public string Agent { get; set; } = "";
     public string Instruction { get; set; } = "";
+    public bool IsInitialAnalysis { get; set; }
     public bool UseChanTheory { get; set; }
     public int? DailyDays { get; set; }
     public int? MonthlyMonths { get; set; }

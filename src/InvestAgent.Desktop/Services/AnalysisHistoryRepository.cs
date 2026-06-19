@@ -10,6 +10,7 @@ public interface IAnalysisHistoryRepository
     Task<long> SaveSessionAsync(PersistedAnalysisSession session);
     Task<List<SessionHistoryGroup>> ListSessionGroupsAsync();
     Task<PersistedAnalysisSession?> GetSessionAsync(long sessionId);
+    Task DeleteSessionAsync(long sessionId);
 }
 
 public class AnalysisHistoryRepository : IAnalysisHistoryRepository
@@ -144,6 +145,23 @@ ORDER BY updated_at DESC, id DESC;";
             Messages = messages,
             WorkflowRuns = workflowRuns
         };
+    }
+
+    public async Task DeleteSessionAsync(long sessionId)
+    {
+        await using var conn = OpenConnection();
+        await conn.OpenAsync();
+        using var tx = conn.BeginTransaction();
+
+        await DeleteChildrenAsync(conn, tx, sessionId);
+
+        await using var deleteSession = conn.CreateCommand();
+        deleteSession.Transaction = tx;
+        deleteSession.CommandText = "DELETE FROM analysis_sessions WHERE id = $sessionId;";
+        deleteSession.Parameters.AddWithValue("$sessionId", sessionId);
+        await deleteSession.ExecuteNonQueryAsync();
+
+        tx.Commit();
     }
 
     private SqliteConnection OpenConnection() => new($"Data Source={_dbPath}");

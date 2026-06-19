@@ -13,6 +13,7 @@ public class SessionStatePatch
     public string? AgentCResult { get; set; }
     public string? AgentDResult { get; set; }
     public string? FinalRiskAdvice { get; set; }
+    public string? InitialAnalysisResponse { get; set; }
     public string? FinalResponse { get; set; }
     public string? StockName { get; set; }
 
@@ -34,6 +35,7 @@ public class SessionStatePatch
         if (!string.IsNullOrWhiteSpace(AgentCResult)) state.AgentCResult = AgentCResult;
         if (!string.IsNullOrWhiteSpace(AgentDResult)) state.AgentDResult = AgentDResult;
         if (!string.IsNullOrWhiteSpace(FinalRiskAdvice)) state.FinalRiskAdvice = FinalRiskAdvice;
+        if (!string.IsNullOrWhiteSpace(InitialAnalysisResponse)) state.InitialAnalysisResponse = InitialAnalysisResponse;
         if (!string.IsNullOrWhiteSpace(FinalResponse)) state.FinalResponse = FinalResponse;
         if (!string.IsNullOrWhiteSpace(StockName)) state.StockName = StockName;
         if (DailyKLines is not null) state.DailyKLines = DailyKLines;

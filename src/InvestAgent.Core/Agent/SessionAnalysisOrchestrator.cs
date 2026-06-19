@@ -22,74 +22,88 @@ public class SessionAnalysisOrchestrator : ISessionAnalysisOrchestrator
         _subAgents = subAgents.ToDictionary(x => NormalizeAgentKey(x.AgentName), x => x, StringComparer.OrdinalIgnoreCase);
     }
 
-    public async Task<List<AgentStep>> RunInitialAnalysisAsync(AgentSessionContext context, string targetInput)
+    public async Task<List<AgentStep>> RunInitialAnalysisAsync(AgentSessionContext context, string targetInput, IAnalysisStreamingObserver? observer = null)
     {
         var turnIndex = GetNextTurnIndex(context);
-        AddConversation(context, "user", targetInput, turnIndex);
-        var steps = new List<AgentStep>
+        await AddConversationAsync(context, "user", targetInput, turnIndex, observer);
+        var steps = new List<AgentStep>();
+        await AppendStepAsync(context, steps, "Agent A", new AgentStep
         {
-            new()
-            {
-                Type = AgentStepType.Thought,
-                Content = $"为 {context.State.Symbol} 创建新的股票分析会话，并执行初始全量分析。"
-            }
-        };
+            Type = AgentStepType.Thought,
+            Content = $"为 {context.State.Symbol} 创建新的股票分析会话，并执行初始全量分析。"
+        }, turnIndex, observer);
 
-        await EnsureMainBusinessAsync(context, targetInput);
+        var mainBusinessStep = new AgentStep
+        {
+            Type = AgentStepType.Action,
+            Content = "Agent A 正在整理公司主要业务与行业定位。"
+        };
+        await AppendStepAsync(context, steps, "Agent A", mainBusinessStep, turnIndex, observer);
+
+        await EnsureMainBusinessAsync(context, targetInput, observer);
+
+        var mainBusinessDone = new AgentStep
+        {
+            Type = AgentStepType.Observation,
+            Content = "公司主要业务整理完成。"
+        };
+        await AppendStepAsync(context, steps, "Agent A", mainBusinessDone, turnIndex, observer);
 
         var tasks = new List<SubAgentTask>
         {
-            new() { Agent = "B", Instruction = $"对 {context.State.Symbol} 做初始K线分析，使用当前默认区间。", DailyDays = context.State.DailyDays, MonthlyMonths = context.State.MonthlyMonths },
-            new() { Agent = "C", Instruction = $"对 {context.State.Symbol} 做初始新闻分析，使用当前默认窗口。", NewsMonths = context.State.NewsMonths, NewsSentimentFilter = context.State.NewsSentimentFilter },
-            new() { Agent = "D", Instruction = $"对 {context.State.Symbol} 做初始财务分析，使用当前默认窗口。", FinancialYears = context.State.FinancialYears }
+            new() { Agent = "B", IsInitialAnalysis = true, Instruction = $"对 {context.State.Symbol} 做初始K线分析，使用当前默认区间。", DailyDays = context.State.DailyDays, MonthlyMonths = context.State.MonthlyMonths },
+            new() { Agent = "C", IsInitialAnalysis = true, Instruction = $"对 {context.State.Symbol} 做初始新闻分析，使用当前默认窗口。", NewsMonths = context.State.NewsMonths, NewsSentimentFilter = context.State.NewsSentimentFilter },
+            new() { Agent = "D", IsInitialAnalysis = true, Instruction = $"对 {context.State.Symbol} 做初始财务分析，使用当前默认窗口。", FinancialYears = context.State.FinancialYears }
         };
 
-        steps.AddRange(await ExecuteTasksAsync(context, tasks, turnIndex));
-        await FinalizeAssistantResponseAsync(context, targetInput, tasks, steps, "初始分析", turnIndex, isInitialAnalysis: true);
+        steps.AddRange(await ExecuteTasksAsync(context, tasks, turnIndex, observer));
+        await FinalizeAssistantResponseAsync(context, targetInput, tasks, steps, "初始分析", turnIndex, isInitialAnalysis: true, observer);
         return steps;
     }
 
-    public async Task<List<AgentStep>> HandleChatAsync(AgentSessionContext context, string userMessage)
+    public async Task<List<AgentStep>> HandleChatAsync(AgentSessionContext context, string userMessage, IAnalysisStreamingObserver? observer = null)
     {
         var currentSymbol = context.State.Symbol;
         var mentionedCode = Regex.Match(userMessage, @"\b\d{6}\b").Value;
         if (!string.IsNullOrWhiteSpace(mentionedCode) && !string.Equals(mentionedCode, currentSymbol, StringComparison.OrdinalIgnoreCase))
         {
             var rejectTurnIndex = GetNextTurnIndex(context);
-            AddConversation(context, "user", userMessage, rejectTurnIndex);
-            var reject = new List<AgentStep>
+            await AddConversationAsync(context, "user", userMessage, rejectTurnIndex, observer);
+            var reject = new List<AgentStep>();
+            var rejectText = $"当前会话绑定的是 {currentSymbol}。如果你想分析 {mentionedCode}，请从顶部新建该股票分析会话。";
+            await AppendStepAsync(context, reject, "Agent A", new AgentStep
             {
-                new()
-                {
-                    Type = AgentStepType.Response,
-                    Content = $"当前会话绑定的是 {currentSymbol}。如果你想分析 {mentionedCode}，请从顶部新建该股票分析会话。"
-                }
+                Type = AgentStepType.Response,
+                Content = rejectText
+            }, rejectTurnIndex, observer);
+            await AddConversationAsync(context, "assistant", rejectText, rejectTurnIndex, observer);
+            var rejectPatch = new SessionStatePatch
+            {
+                FinalResponse = rejectText,
+                FinalRiskAdvice = rejectText
             };
-            AddConversation(context, "assistant", reject[0].Content, rejectTurnIndex);
-            context.State.FinalResponse = reject[0].Content;
-            context.State.FinalRiskAdvice = reject[0].Content;
+            rejectPatch.ApplyTo(context.State);
+            await NotifyStatePatchedAsync(context, rejectPatch, observer);
             AddWorkflowRun(context, "Agent A", rejectTurnIndex, reject);
             return reject;
         }
 
         var turnIndex = GetNextTurnIndex(context);
-        AddConversation(context, "user", userMessage, turnIndex);
+        await AddConversationAsync(context, "user", userMessage, turnIndex, observer);
 
-        var steps = new List<AgentStep>
+        var steps = new List<AgentStep>();
+        await AppendStepAsync(context, steps, "Agent A", new AgentStep
         {
-            new()
-            {
-                Type = AgentStepType.Thought,
-                Content = $"Agent A 正在理解当前会话内的追问，并为 {currentSymbol} 规划后续分析任务。"
-            }
-        };
+            Type = AgentStepType.Thought,
+            Content = $"Agent A 正在理解当前会话内的追问，并为 {currentSymbol} 规划后续分析任务。"
+        }, turnIndex, observer);
 
         var plan = await BuildDispatchPlanAsync(context, userMessage);
-        steps.Add(new AgentStep
+        await AppendStepAsync(context, steps, "Agent A", new AgentStep
         {
             Type = AgentStepType.Action,
             Content = $"Agent A 调度结果：{plan.Mode}，任务数 {plan.Tasks.Count}。"
-        });
+        }, turnIndex, observer);
 
         if (string.Equals(plan.Mode, "clarify", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(plan.Mode, "reject_switch", StringComparison.OrdinalIgnoreCase) ||
@@ -98,20 +112,25 @@ public class SessionAnalysisOrchestrator : ISessionAnalysisOrchestrator
             var assistantText = string.IsNullOrWhiteSpace(plan.UserFacingMessage)
                 ? $"当前未能从你的追问中识别出明确的数据更新任务。请更具体一些，例如“看一年日K”“用缠论分析”“只看消极新闻”“看五年财务”。"
                 : plan.UserFacingMessage;
-            steps.Add(new AgentStep { Type = AgentStepType.Response, Content = assistantText });
-            AddConversation(context, "assistant", assistantText, turnIndex);
-            context.State.FinalResponse = assistantText;
-            context.State.FinalRiskAdvice = assistantText;
+            await AppendStepAsync(context, steps, "Agent A", new AgentStep { Type = AgentStepType.Response, Content = assistantText }, turnIndex, observer);
+            await AddConversationAsync(context, "assistant", assistantText, turnIndex, observer);
+            var clarifyPatch = new SessionStatePatch
+            {
+                FinalResponse = assistantText,
+                FinalRiskAdvice = assistantText
+            };
+            clarifyPatch.ApplyTo(context.State);
+            await NotifyStatePatchedAsync(context, clarifyPatch, observer);
             AddWorkflowRun(context, "Agent A", turnIndex, steps);
             return steps;
         }
 
-        steps.AddRange(await ExecuteTasksAsync(context, plan.Tasks, turnIndex));
-        await FinalizeAssistantResponseAsync(context, userMessage, plan.Tasks, steps, "追问分析", turnIndex, isInitialAnalysis: false);
+        steps.AddRange(await ExecuteTasksAsync(context, plan.Tasks, turnIndex, observer));
+        await FinalizeAssistantResponseAsync(context, userMessage, plan.Tasks, steps, "追问分析", turnIndex, isInitialAnalysis: false, observer);
         return steps;
     }
 
-    private async Task EnsureMainBusinessAsync(AgentSessionContext context, string userIntent)
+    private async Task EnsureMainBusinessAsync(AgentSessionContext context, string userIntent, IAnalysisStreamingObserver? observer)
     {
         var rawBusiness = await _stockDataService.GetMainBusinessAsync(context.State.Symbol);
         var stockName = context.State.StockName;
@@ -121,18 +140,38 @@ public class SessionAnalysisOrchestrator : ISessionAnalysisOrchestrator
             stockName = metrics?.Name ?? context.State.Symbol;
         }
 
-        var expanded = await _promptRunner.RunPromptAsync(
+        var seedPatch = new SessionStatePatch
+        {
+            StockName = stockName,
+            MainBusiness = rawBusiness
+        };
+        seedPatch.ApplyTo(context.State);
+        await NotifyStatePatchedAsync(context, seedPatch, observer);
+
+        var expanded = await _promptRunner.RunPromptStreamingAsync(
             "你是 Agent A。请根据给定主营业务资料，输出：1) 所属行业与板块 2) 一段简洁但专业的业务理解。不要输出风险提示。",
             $"标的: {context.State.Symbol} {stockName}\n原始主营业务资料:\n{rawBusiness}\n\n请输出一段适合股票分析首页展示的“公司主要业务”内容。",
+            async partial =>
+            {
+                var patch = new SessionStatePatch
+                {
+                    StockName = stockName,
+                    MainBusiness = partial
+                };
+                patch.ApplyTo(context.State);
+                await NotifyStatePatchedAsync(context, patch, observer);
+            },
             0.2,
             context.Memory,
             BuildStateSummary(context.State));
 
-        new SessionStatePatch
+        var finalPatch = new SessionStatePatch
         {
             StockName = stockName,
             MainBusiness = string.IsNullOrWhiteSpace(expanded) ? rawBusiness : expanded
-        }.ApplyTo(context.State);
+        };
+        finalPatch.ApplyTo(context.State);
+        await NotifyStatePatchedAsync(context, finalPatch, observer);
     }
 
     private async Task<AgentDispatchPlan> BuildDispatchPlanAsync(AgentSessionContext context, string userMessage)
@@ -190,7 +229,7 @@ public class SessionAnalysisOrchestrator : ISessionAnalysisOrchestrator
         return FallbackDispatchPlan(userMessage, context.State);
     }
 
-    private async Task<List<AgentStep>> ExecuteTasksAsync(AgentSessionContext context, List<SubAgentTask> tasks, int triggerTurnIndex)
+    private async Task<List<AgentStep>> ExecuteTasksAsync(AgentSessionContext context, List<SubAgentTask> tasks, int triggerTurnIndex, IAnalysisStreamingObserver? observer)
     {
         var steps = new List<AgentStep>();
         foreach (var task in tasks)
@@ -198,16 +237,17 @@ public class SessionAnalysisOrchestrator : ISessionAnalysisOrchestrator
             var key = NormalizeAgentKey(task.Agent);
             if (!_subAgents.TryGetValue(key, out var service))
             {
-                steps.Add(new AgentStep
+                await AppendStepAsync(context, steps, "Agent A", new AgentStep
                 {
                     Type = AgentStepType.Response,
                     Content = $"未找到可执行的子代理: {task.Agent}"
-                });
+                }, triggerTurnIndex, observer);
                 continue;
             }
 
-            var subResult = await service.ExecuteAsync(context, task);
+            var subResult = await service.ExecuteAsync(context, task, observer, triggerTurnIndex);
             subResult.StatePatch.ApplyTo(context.State);
+            await NotifyStatePatchedAsync(context, subResult.StatePatch, observer);
             steps.AddRange(subResult.WorkflowSteps);
             AddWorkflowRun(context, service.AgentName, triggerTurnIndex, subResult.WorkflowSteps);
         }
@@ -221,27 +261,63 @@ public class SessionAnalysisOrchestrator : ISessionAnalysisOrchestrator
         List<AgentStep> steps,
         string workflowLabel,
         int turnIndex,
-        bool isInitialAnalysis)
+        bool isInitialAnalysis,
+        IAnalysisStreamingObserver? observer)
     {
-        var advice = await _promptRunner.RunPromptAsync(
+        await AppendStepAsync(context, steps, "Agent A", new AgentStep
+        {
+            Type = AgentStepType.Action,
+            Content = isInitialAnalysis
+                ? "Agent A 正在生成最终风险提示与投资建议。"
+                : "Agent A 正在生成本轮追问的补充结论与风险提示。"
+        }, turnIndex, observer);
+
+        var assistantMessage = await AddConversationAsync(context, "assistant", "正在生成回复...", turnIndex, observer, addToMemory: false);
+
+        var advice = await _promptRunner.RunPromptStreamingAsync(
             isInitialAnalysis
                 ? "你是 Agent A。请只输出“最终风险提示与投资建议”这一小节，不要复述K线、新闻、财务正文，不要加标题序号。"
                 : "你是 Agent A。当前是会话内追问，请只针对本轮被更新的主题输出补充结论和风险提示，不要把无关板块重新总结一遍。",
             BuildRiskAdvicePrompt(context.State, userIntent, executedTasks, isInitialAnalysis),
+            async partial =>
+            {
+                var patch = new SessionStatePatch
+                {
+                    FinalRiskAdvice = partial,
+                    FinalResponse = BuildFinalResponse(context.State, partial, executedTasks, isInitialAnalysis, userIntent),
+                    InitialAnalysisResponse = isInitialAnalysis
+                        ? BuildFinalResponse(context.State, partial, executedTasks, true, userIntent)
+                        : null
+                };
+                patch.ApplyTo(context.State);
+                assistantMessage.Content = context.State.FinalResponse;
+                await NotifyStatePatchedAsync(context, patch, observer);
+                await NotifyMessageUpdatedAsync(context, assistantMessage, observer);
+            },
             0.3,
             context.Memory,
             BuildStateSummary(context.State));
 
-        context.State.FinalRiskAdvice = advice;
-        context.State.FinalResponse = BuildFinalResponse(context.State, advice, executedTasks, isInitialAnalysis, userIntent);
-        if (isInitialAnalysis || string.IsNullOrWhiteSpace(context.State.InitialAnalysisResponse))
-            context.State.InitialAnalysisResponse = context.State.FinalResponse;
-        AddConversation(context, "assistant", context.State.FinalResponse, turnIndex);
-        steps.Add(new AgentStep
+        var finalResponse = BuildFinalResponse(context.State, advice, executedTasks, isInitialAnalysis, userIntent);
+        var finalPatch = new SessionStatePatch
+        {
+            FinalRiskAdvice = advice,
+            FinalResponse = finalResponse,
+            InitialAnalysisResponse = isInitialAnalysis || string.IsNullOrWhiteSpace(context.State.InitialAnalysisResponse)
+                ? finalResponse
+                : null
+        };
+        finalPatch.ApplyTo(context.State);
+        assistantMessage.Content = context.State.FinalResponse;
+        context.Memory.AddAssistantMessage(context.State.FinalResponse);
+        await NotifyStatePatchedAsync(context, finalPatch, observer);
+        await NotifyMessageUpdatedAsync(context, assistantMessage, observer);
+
+        await AppendStepAsync(context, steps, "Agent A", new AgentStep
         {
             Type = AgentStepType.Response,
             Content = $"Agent A 已完成{workflowLabel}并更新当前会话。"
-        });
+        }, turnIndex, observer);
         AddWorkflowRun(context, "Agent A", turnIndex, steps);
     }
 
@@ -477,7 +553,7 @@ public class SessionAnalysisOrchestrator : ISessionAnalysisOrchestrator
         if (filteredTasks.Count == 0)
             return FallbackDispatchPlan(userMessage, state);
 
-        plan.Tasks = filteredTasks
+            plan.Tasks = filteredTasks
             .GroupBy(t => NormalizeAgentKey(t.Agent), StringComparer.OrdinalIgnoreCase)
             .Select(g => MergeTasksForAgent(g.Key, g.ToList(), userMessage, state))
             .ToList();
@@ -491,6 +567,7 @@ public class SessionAnalysisOrchestrator : ISessionAnalysisOrchestrator
         {
             Agent = agent,
             Instruction = string.Join("\n", tasks.Select(t => t.Instruction).Where(x => !string.IsNullOrWhiteSpace(x)).Distinct()),
+            IsInitialAnalysis = tasks.Any(t => t.IsInitialAnalysis),
             UseChanTheory = tasks.Any(t => t.UseChanTheory),
             DailyDays = tasks.Select(t => t.DailyDays).LastOrDefault(x => x.HasValue),
             MonthlyMonths = tasks.Select(t => t.MonthlyMonths).LastOrDefault(x => x.HasValue),
@@ -574,19 +651,60 @@ public class SessionAnalysisOrchestrator : ISessionAnalysisOrchestrator
         return agentName.Replace("Agent", "", StringComparison.OrdinalIgnoreCase).Trim();
     }
 
-    private static void AddConversation(AgentSessionContext context, string role, string content, int turnIndex)
+    private static async Task AppendStepAsync(
+        AgentSessionContext context,
+        List<AgentStep> steps,
+        string agentName,
+        AgentStep step,
+        int turnIndex,
+        IAnalysisStreamingObserver? observer)
     {
-        context.Messages.Add(new SessionChatMessage
+        steps.Add(step);
+        if (observer is not null)
+            await observer.OnStepAddedAsync(context, agentName, step, turnIndex);
+    }
+
+    private static async Task NotifyStatePatchedAsync(
+        AgentSessionContext context,
+        SessionStatePatch patch,
+        IAnalysisStreamingObserver? observer)
+    {
+        if (observer is not null)
+            await observer.OnStatePatchedAsync(context, patch);
+    }
+
+    private static async Task<SessionChatMessage> AddConversationAsync(
+        AgentSessionContext context,
+        string role,
+        string content,
+        int turnIndex,
+        IAnalysisStreamingObserver? observer,
+        bool addToMemory = true)
+    {
+        var message = new SessionChatMessage
         {
             Role = role,
             Content = content,
             CreatedAt = DateTime.Now,
             TurnIndex = turnIndex
-        });
-        if (role == "user")
+        };
+        context.Messages.Add(message);
+        if (addToMemory && role == "user")
             context.Memory.AddUserMessage(content);
-        else if (role == "assistant")
+        else if (addToMemory && role == "assistant")
             context.Memory.AddAssistantMessage(content);
+        if (observer is not null)
+            await observer.OnMessageAddedAsync(context, message);
+        return message;
+    }
+
+    private static async Task NotifyMessageUpdatedAsync(
+        AgentSessionContext context,
+        SessionChatMessage message,
+        IAnalysisStreamingObserver? observer)
+    {
+        if (observer is not null)
+            await observer.OnMessageUpdatedAsync(context, message);
     }
 
     private static int GetNextTurnIndex(AgentSessionContext context)

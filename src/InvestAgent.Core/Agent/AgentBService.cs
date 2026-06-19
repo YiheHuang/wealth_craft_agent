@@ -22,59 +22,85 @@ public class AgentBService : ISubAgentService
         _promptRunner = promptRunner;
     }
 
-    public async Task<SubAgentExecutionResult> ExecuteAsync(AgentSessionContext context, SubAgentTask task)
+    public async Task<SubAgentExecutionResult> ExecuteAsync(AgentSessionContext context, SubAgentTask task, IAnalysisStreamingObserver? observer = null, int triggerTurnIndex = 0)
     {
         var result = new SubAgentExecutionResult { AgentName = AgentName };
+        var isInitialAnalysis = task.IsInitialAnalysis;
         var dailyDays = task.DailyDays ?? context.State.DailyDays;
         var monthlyMonths = task.MonthlyMonths ?? context.State.MonthlyMonths;
         var useChanTheory = task.UseChanTheory || ContainsChanKeywords(task.Instruction);
 
-        result.WorkflowSteps.Add(new AgentStep
+        await AppendStepAsync(context, result, new AgentStep
         {
             Type = AgentStepType.Thought,
             Content = $"围绕 {context.State.Symbol} 的K线请求展开分析，目标区间：日K {dailyDays} 天，月K {monthlyMonths} 个月。"
-        });
+        }, observer, triggerTurnIndex);
 
         var daily = await _stockDataService.GetHistoricalPricesAsync(context.State.Symbol, dailyDays);
         var monthly = await _stockDataService.GetMonthlyKLineAsync(context.State.Symbol, monthlyMonths);
-        result.WorkflowSteps.Add(new AgentStep
+        await AppendStepAsync(context, result, new AgentStep
         {
             Type = AgentStepType.Action,
             FunctionName = "get_historical_prices/get_monthly_kline",
             Content = "抓取K线数据并准备技术分析。"
-        });
-        result.WorkflowSteps.Add(new AgentStep
+        }, observer, triggerTurnIndex);
+        await AppendStepAsync(context, result, new AgentStep
         {
             Type = AgentStepType.Observation,
             FunctionName = "get_historical_prices/get_monthly_kline",
             FunctionResult = $"日K {daily.Count} 条, 月K {monthly.Count} 条",
             Content = "K线数据抓取完成。"
-        });
+        }, observer, triggerTurnIndex);
+
+        var dataPatch = new SessionStatePatch
+        {
+            DailyDays = dailyDays,
+            MonthlyMonths = monthlyMonths,
+            DailyKLines = daily,
+            MonthlyKLines = monthly
+        };
+        dataPatch.ApplyTo(context.State);
+        await NotifyStatePatchedAsync(context, dataPatch, observer);
 
         var chanSections = new List<string>();
         if (useChanTheory)
         {
             chanSections = _localKnowledgeService.Search("chan", task.Instruction, 3);
-            result.WorkflowSteps.Add(new AgentStep
+            await AppendStepAsync(context, result, new AgentStep
             {
                 Type = AgentStepType.Action,
                 FunctionName = "search_local_knowledge",
                 FunctionArgs = "{\"topic\":\"chan\"}",
                 Content = "检索本地缠论知识库。"
-            });
-            result.WorkflowSteps.Add(new AgentStep
+            }, observer, triggerTurnIndex);
+            await AppendStepAsync(context, result, new AgentStep
             {
                 Type = AgentStepType.Observation,
                 FunctionName = "search_local_knowledge",
                 FunctionResult = chanSections.Count == 0 ? "未命中，回退到缠论模板。" : $"命中 {chanSections.Count} 个知识片段",
                 Content = "缠论知识检索完成。"
-            });
+            }, observer, triggerTurnIndex);
         }
 
-        var userPrompt = BuildPrompt(context.State.Symbol, task.Instruction, dailyDays, monthlyMonths, daily, monthly, useChanTheory, chanSections, _localKnowledgeService.GetChanAnalysisTemplate());
-        var narrative = await _promptRunner.RunPromptAsync(
-            BuildSystemPrompt(useChanTheory),
+        var userPrompt = BuildPrompt(context.State.Symbol, task.Instruction, dailyDays, monthlyMonths, daily, monthly, useChanTheory, chanSections, _localKnowledgeService.GetChanAnalysisTemplate(), isInitialAnalysis);
+        await AppendStepAsync(context, result, new AgentStep
+        {
+            Type = AgentStepType.Action,
+            Content = useChanTheory ? "Agent B 正在结合缠论生成K线结构分析。" : "Agent B 正在生成K线结构分析。"
+        }, observer, triggerTurnIndex);
+
+        var narrative = await _promptRunner.RunPromptStreamingAsync(
+            BuildSystemPrompt(useChanTheory, isInitialAnalysis),
             userPrompt,
+            async partial =>
+            {
+                var patch = new SessionStatePatch
+                {
+                    AgentBResult = partial
+                };
+                patch.ApplyTo(context.State);
+                await NotifyStatePatchedAsync(context, patch, observer);
+            },
             0.2,
             context.Memory,
             BuildStateSummary(context.State));
@@ -87,20 +113,37 @@ public class AgentBService : ISubAgentService
             MonthlyKLines = monthly,
             AgentBResult = narrative
         };
-        result.WorkflowSteps.Add(new AgentStep
+        await AppendStepAsync(context, result, new AgentStep
         {
             Type = AgentStepType.Response,
             Content = "Agent B 已完成K线与技术结构分析。"
-        });
+        }, observer, triggerTurnIndex);
         return result;
     }
 
-    private static string BuildSystemPrompt(bool useChanTheory)
+    private async Task AppendStepAsync(AgentSessionContext context, SubAgentExecutionResult result, AgentStep step, IAnalysisStreamingObserver? observer, int triggerTurnIndex)
+    {
+        result.WorkflowSteps.Add(step);
+        if (observer is not null)
+            await observer.OnStepAddedAsync(context, AgentName, step, triggerTurnIndex);
+    }
+
+    private static async Task NotifyStatePatchedAsync(AgentSessionContext context, SessionStatePatch patch, IAnalysisStreamingObserver? observer)
+    {
+        if (observer is not null)
+            await observer.OnStatePatchedAsync(context, patch);
+    }
+
+    private static string BuildSystemPrompt(bool useChanTheory, bool isInitialAnalysis)
     {
         var sb = new StringBuilder();
         sb.AppendLine("你是 Agent B，负责K线和技术结构分析。");
         sb.AppendLine("输出必须具体，优先引用区间涨跌、阶段高低点、结构变化、风险点。");
         sb.AppendLine("如果用户问的是某个局部主题，就只回答该主题，不要擅自扩展成整份股票总分析。");
+        if (isInitialAnalysis)
+            sb.AppendLine("这是首次总览分析，请适度结构化，方便用户快速建立全局认知。");
+        else
+            sb.AppendLine("这是会话内追问，请优先直接回应用户最关心的问题，允许自由展开论证，不必强行套固定模板。");
         if (useChanTheory)
         {
             sb.AppendLine("本次必须结合缠论进行分析，优先讨论级别、分型、笔、线段、中枢、背驰、买卖点。");
@@ -119,7 +162,8 @@ public class AgentBService : ISubAgentService
         List<StockKLine> monthly,
         bool useChanTheory,
         List<string> chanSections,
-        string chanTemplate)
+        string chanTemplate,
+        bool isInitialAnalysis)
     {
         var sb = new StringBuilder();
         var dailyStats = BuildStats(daily);
@@ -157,18 +201,30 @@ public class AgentBService : ISubAgentService
         sb.AppendLine();
         if (useChanTheory)
         {
-            sb.AppendLine("请严格按以下结构输出，并且每一节都尽量引用具体日期、价位或区间变化：");
-            sb.AppendLine("1. 分析级别与区间");
-            sb.AppendLine("2. 最近三个月日K的走势概览");
-            sb.AppendLine("3. 分型与笔的识别");
-            sb.AppendLine("4. 线段与中枢判断");
-            sb.AppendLine("5. 背驰与买卖点判断");
-            sb.AppendLine("6. 需要关注的风险与不确定性");
-            sb.AppendLine("要求：不能只讲缠论定义，必须明确指出“哪些结构可以确认、哪些还不能确认”。");
+            if (isInitialAnalysis)
+            {
+                sb.AppendLine("请按较清晰的结构输出，并且每一节都尽量引用具体日期、价位或区间变化：");
+                sb.AppendLine("1. 分析级别与区间");
+                sb.AppendLine("2. 走势概览");
+                sb.AppendLine("3. 分型与笔的识别");
+                sb.AppendLine("4. 线段与中枢判断");
+                sb.AppendLine("5. 背驰与买卖点判断");
+                sb.AppendLine("6. 需要关注的风险与不确定性");
+                sb.AppendLine("要求：不能只讲缠论定义，必须明确指出“哪些结构可以确认、哪些还不能确认”。");
+            }
+            else
+            {
+                sb.AppendLine("请围绕用户本轮追问自由发挥，但必须真正结合当前K线与缠论结构来回答。");
+                sb.AppendLine("如果用户只关心某个局部问题，例如背驰、买卖点、中枢或最近一段走势，就聚焦那个问题深入分析。");
+                sb.AppendLine("可以使用自然段或少量小标题，但不要被固定模板束缚。");
+            }
         }
         else
         {
-            sb.AppendLine("请输出详细分析，不要只给结论。建议包含：走势概览、关键价位、结构判断、风险提示。");
+            if (isInitialAnalysis)
+                sb.AppendLine("请输出相对结构化的首次总览分析，建议包含：走势概览、关键价位、结构判断、风险提示。");
+            else
+                sb.AppendLine("请围绕用户本轮问题自由分析，重点回答他追问的内容，不要为了完整性把整份K线总分析重写一遍。");
         }
         return sb.ToString();
     }

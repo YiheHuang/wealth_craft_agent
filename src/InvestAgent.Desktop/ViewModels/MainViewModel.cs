@@ -7,12 +7,13 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
 
 namespace InvestAgent.Desktop.ViewModels;
 
-public class MainViewModel : INotifyPropertyChanged
+public class MainViewModel : INotifyPropertyChanged, IAnalysisStreamingObserver
 {
     private const double CanvasWidth = 1220;
     private const double CanvasHeight = 420;
@@ -65,8 +66,6 @@ public class MainViewModel : INotifyPropertyChanged
     public ICommand SendChatCommand { get; }
     public ICommand ToggleDailyViewCommand { get; }
     public ICommand ToggleMonthlyViewCommand { get; }
-    public ICommand RefreshHistoryCommand { get; }
-    public ICommand LoadSelectedHistoryCommand { get; }
 
     public MainViewModel(
         IAgentSessionFactory sessionFactory,
@@ -83,8 +82,6 @@ public class MainViewModel : INotifyPropertyChanged
         SendChatCommand = new RelayCommand(SendChatAsync);
         ToggleDailyViewCommand = new RelayCommand(() => { ShowDailyChart = !ShowDailyChart; return Task.CompletedTask; });
         ToggleMonthlyViewCommand = new RelayCommand(() => { ShowMonthlyChart = !ShowMonthlyChart; return Task.CompletedTask; });
-        RefreshHistoryCommand = new RelayCommand(RefreshHistoryAsync);
-        LoadSelectedHistoryCommand = new RelayCommand(LoadSelectedHistoryAsync);
 
         _ = RefreshHistoryAsync();
     }
@@ -130,8 +127,9 @@ public class MainViewModel : INotifyPropertyChanged
         var stockName = await ResolveStockNameAsync(symbol, targetInput);
         _currentSessionContext = _sessionFactory.Create(symbol, stockName);
         _currentSessionContext.State.SessionTitle = $"分析会话 {DateTime.Now:yyyy-MM-dd HH:mm}";
+        SyncSummaryFields(_currentSessionContext);
 
-        await _orchestrator.RunInitialAnalysisAsync(_currentSessionContext, targetInput);
+        await _orchestrator.RunInitialAnalysisAsync(_currentSessionContext, targetInput, this);
         ApplySessionToUi(_currentSessionContext);
         await SaveCurrentSessionAsync();
         await RefreshHistoryAsync();
@@ -145,7 +143,7 @@ public class MainViewModel : INotifyPropertyChanged
         var message = ChatInput.Trim();
         ChatInput = "";
 
-        await _orchestrator.HandleChatAsync(_currentSessionContext, message);
+        await _orchestrator.HandleChatAsync(_currentSessionContext, message, this);
         ApplySessionToUi(_currentSessionContext);
         await SaveCurrentSessionAsync();
         await RefreshHistoryAsync();
@@ -171,17 +169,34 @@ public class MainViewModel : INotifyPropertyChanged
             RefreshVisibleSessions();
     }
 
-    private async Task LoadSelectedHistoryAsync()
+    public async Task LoadHistorySessionAsync(AnalysisSessionRecord? session)
     {
-        if (SelectedHistorySession is null)
+        if (session is null)
             return;
 
-        var persisted = await _historyRepository.GetSessionAsync(SelectedHistorySession.Id);
+        var persisted = await _historyRepository.GetSessionAsync(session.Id);
         if (persisted is null)
             return;
 
         _currentSessionContext = _sessionFactory.Restore(persisted);
         ApplySessionToUi(_currentSessionContext);
+    }
+
+    public async Task DeleteHistorySessionAsync(AnalysisSessionRecord? session)
+    {
+        if (session is null)
+            return;
+
+        await _historyRepository.DeleteSessionAsync(session.Id);
+
+        if (_currentSessionContext?.State.SessionId == session.Id)
+        {
+            _currentSessionContext = null;
+            ResetUiData();
+            OnPropertyChanged(nameof(HasActiveSession));
+        }
+
+        await RefreshHistoryAsync();
     }
 
     private async Task SaveCurrentSessionAsync()
@@ -214,15 +229,7 @@ public class MainViewModel : INotifyPropertyChanged
 
     private void ApplySessionToUi(AgentSessionContext context)
     {
-        ResolvedSymbol = context.State.Symbol;
-        MainBusiness = context.State.MainBusiness;
-        FinalResponse = context.State.FinalResponse;
-        BasicAnalysisResponse = string.IsNullOrWhiteSpace(context.State.InitialAnalysisResponse)
-            ? context.State.FinalResponse
-            : context.State.InitialAnalysisResponse;
-        MetricsSummary = BuildFinancialSummary(context.State.FinancialHistory);
-        CurrentSessionLabel = $"{context.State.Symbol} {context.State.StockName} | {context.State.SessionTitle}";
-        CurrentSessionDisplay = $"{context.State.Symbol} {context.State.StockName} |\n{context.State.SessionTitle}";
+        SyncSummaryFields(context);
 
         DailyKLines.Clear();
         MonthlyKLines.Clear();
@@ -250,6 +257,7 @@ public class MainViewModel : INotifyPropertyChanged
         {
             ChatMessages.Add(new ChatMessageViewModel
             {
+                Source = msg,
                 Role = msg.Role,
                 Content = msg.Content,
                 Timestamp = msg.CreatedAt
@@ -257,20 +265,107 @@ public class MainViewModel : INotifyPropertyChanged
         }
 
         Steps.Clear();
-        foreach (var step in context.WorkflowRuns.OrderBy(x => x.CreatedAt).SelectMany(x => x.Steps))
+        foreach (var run in context.WorkflowRuns.OrderBy(x => x.CreatedAt))
         {
-            Steps.Add(new StepItemViewModel
+            foreach (var step in run.Steps)
             {
-                Title = BuildStepTitle(step),
-                Content = step.FunctionResult is { Length: > 0 }
-                    ? $"{step.Content}\n{step.FunctionResult}"
-                    : step.Content
-            });
+                Steps.Add(new StepItemViewModel
+                {
+                    Title = $"{run.AgentName} | {BuildStepTitle(step)}",
+                    Content = step.FunctionResult is { Length: > 0 }
+                        ? $"{step.Content}\n{step.FunctionResult}"
+                        : step.Content
+                });
+            }
         }
 
         BuildChart(DailyKLines.ToList(), DailySegments, DailyPoints, DailyYTicks, DailyXTicks);
         BuildChart(MonthlyKLines.ToList(), MonthlySegments, MonthlyPoints, MonthlyYTicks, MonthlyXTicks);
         OnPropertyChanged(nameof(HasActiveSession));
+    }
+
+    public async Task OnStepAddedAsync(AgentSessionContext context, string agentName, AgentStep step, int turnIndex)
+    {
+        await Application.Current.Dispatcher.InvokeAsync(() =>
+        {
+            Steps.Add(new StepItemViewModel
+            {
+                Title = $"{agentName} | {BuildStepTitle(step)}",
+                Content = step.FunctionResult is { Length: > 0 }
+                    ? $"{step.Content}\n{step.FunctionResult}"
+                    : step.Content
+            });
+        });
+    }
+
+    public async Task OnStatePatchedAsync(AgentSessionContext context, SessionStatePatch patch)
+    {
+        await Application.Current.Dispatcher.InvokeAsync(() =>
+        {
+            SyncSummaryFields(context);
+
+            if (patch.DailyKLines is not null)
+            {
+                SyncKLines(DailyKLines, patch.DailyKLines);
+                BuildChart(DailyKLines.ToList(), DailySegments, DailyPoints, DailyYTicks, DailyXTicks);
+            }
+
+            if (patch.MonthlyKLines is not null)
+            {
+                SyncKLines(MonthlyKLines, patch.MonthlyKLines);
+                BuildChart(MonthlyKLines.ToList(), MonthlySegments, MonthlyPoints, MonthlyYTicks, MonthlyXTicks);
+            }
+
+            if (patch.CompanyNews is not null || patch.IndustryNews is not null)
+                SyncNewsCollections(context.State);
+
+            if (patch.FinancialHistory is not null)
+            {
+                FinancialHistoryItems.Clear();
+                foreach (var item in context.State.FinancialHistory.OrderByDescending(x => x.ReportDate))
+                    FinancialHistoryItems.Add(item);
+                MetricsSummary = BuildFinancialSummary(context.State.FinancialHistory);
+            }
+        });
+    }
+
+    public async Task OnMessageAddedAsync(AgentSessionContext context, SessionChatMessage message)
+    {
+        await Application.Current.Dispatcher.InvokeAsync(() =>
+        {
+            if (ChatMessages.Any(x => ReferenceEquals(x.Source, message)))
+                return;
+
+            ChatMessages.Add(new ChatMessageViewModel
+            {
+                Source = message,
+                Role = message.Role,
+                Content = message.Content,
+                Timestamp = message.CreatedAt
+            });
+        });
+    }
+
+    public async Task OnMessageUpdatedAsync(AgentSessionContext context, SessionChatMessage message)
+    {
+        await Application.Current.Dispatcher.InvokeAsync(() =>
+        {
+            var existing = ChatMessages.FirstOrDefault(x => ReferenceEquals(x.Source, message));
+            if (existing is null)
+            {
+                ChatMessages.Add(new ChatMessageViewModel
+                {
+                    Source = message,
+                    Role = message.Role,
+                    Content = message.Content,
+                    Timestamp = message.CreatedAt
+                });
+                return;
+            }
+
+            existing.Content = message.Content;
+            existing.Timestamp = message.CreatedAt;
+        });
     }
 
     private void RefreshVisibleSessions()
@@ -310,6 +405,84 @@ public class MainViewModel : INotifyPropertyChanged
         MainBusiness = "";
         CurrentSessionLabel = "当前未激活会话";
         CurrentSessionDisplay = "当前未激活会话";
+    }
+
+    private void SyncSummaryFields(AgentSessionContext context)
+    {
+        ResolvedSymbol = context.State.Symbol;
+        MainBusiness = context.State.MainBusiness;
+        FinalResponse = context.State.FinalResponse;
+        BasicAnalysisResponse = string.IsNullOrWhiteSpace(context.State.InitialAnalysisResponse)
+            ? BuildLiveBasicAnalysisPreview(context.State)
+            : context.State.InitialAnalysisResponse;
+        MetricsSummary = BuildFinancialSummary(context.State.FinancialHistory);
+        CurrentSessionLabel = $"{context.State.Symbol} {context.State.StockName} | {context.State.SessionTitle}";
+        CurrentSessionDisplay = $"{context.State.Symbol} {context.State.StockName} |\n{context.State.SessionTitle}";
+        OnPropertyChanged(nameof(HasActiveSession));
+    }
+
+    private void SyncKLines(ObservableCollection<StockKLine> target, List<StockKLine> source)
+    {
+        target.Clear();
+        foreach (var item in source.OrderBy(x => x.Date))
+            target.Add(item);
+    }
+
+    private void SyncNewsCollections(AnalysisSessionState state)
+    {
+        NewsItems.Clear();
+        CompanyNewsItems.Clear();
+        IndustryNewsItems.Clear();
+
+        foreach (var item in state.CompanyNews.OrderByDescending(x => x.PublishTime))
+        {
+            CompanyNewsItems.Add(item);
+            NewsItems.Add(item);
+        }
+
+        foreach (var item in state.IndustryNews.OrderByDescending(x => x.PublishTime))
+        {
+            IndustryNewsItems.Add(item);
+            NewsItems.Add(item);
+        }
+    }
+
+    private static string BuildLiveBasicAnalysisPreview(AnalysisSessionState state)
+    {
+        var sb = new StringBuilder();
+        if (!string.IsNullOrWhiteSpace(state.MainBusiness))
+        {
+            sb.AppendLine("## 公司主要业务");
+            sb.AppendLine(state.MainBusiness);
+        }
+        if (!string.IsNullOrWhiteSpace(state.AgentBResult))
+        {
+            if (sb.Length > 0) sb.AppendLine();
+            sb.AppendLine("## K线分析");
+            sb.AppendLine(state.AgentBResult);
+        }
+        if (!string.IsNullOrWhiteSpace(state.AgentCResult))
+        {
+            if (sb.Length > 0) sb.AppendLine();
+            sb.AppendLine("## 新闻分析");
+            sb.AppendLine(state.AgentCResult);
+        }
+        if (!string.IsNullOrWhiteSpace(state.AgentDResult))
+        {
+            if (sb.Length > 0) sb.AppendLine();
+            sb.AppendLine("## 财务分析");
+            sb.AppendLine(state.AgentDResult);
+        }
+        if (!string.IsNullOrWhiteSpace(state.FinalRiskAdvice))
+        {
+            if (sb.Length > 0) sb.AppendLine();
+            sb.AppendLine("## 最终风险提示与投资建议");
+            sb.AppendLine(state.FinalRiskAdvice);
+            sb.AppendLine();
+            sb.AppendLine("⚠️ 以上分析仅供参考");
+        }
+
+        return sb.Length == 0 ? "正在准备基础分析，请稍候..." : sb.ToString().Trim();
     }
 
     private async Task<string> ResolveSymbolAsync(string input)
@@ -472,13 +645,22 @@ public class MainViewModel : INotifyPropertyChanged
     private void OnPropertyChanged([CallerMemberName] string? name = null) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }
 
-public class ChatMessageViewModel
+public class ChatMessageViewModel : INotifyPropertyChanged
 {
-    public string Role { get; set; } = "";
-    public string Content { get; set; } = "";
-    public DateTime Timestamp { get; set; }
+    private string _role = "";
+    private string _content = "";
+    private DateTime _timestamp;
+
+    public SessionChatMessage? Source { get; set; }
+
+    public string Role { get => _role; set { _role = value; OnPropertyChanged(); OnPropertyChanged(nameof(IsUser)); OnPropertyChanged(nameof(RoleLabel)); } }
+    public string Content { get => _content; set { _content = value; OnPropertyChanged(); } }
+    public DateTime Timestamp { get => _timestamp; set { _timestamp = value; OnPropertyChanged(); } }
     public bool IsUser => string.Equals(Role, "user", StringComparison.OrdinalIgnoreCase);
     public string RoleLabel => IsUser ? "用户" : "Agent";
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+    private void OnPropertyChanged([CallerMemberName] string? name = null) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }
 
 public class HistoryStockGroupViewModel
