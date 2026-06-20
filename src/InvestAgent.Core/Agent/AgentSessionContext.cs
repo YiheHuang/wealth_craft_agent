@@ -5,6 +5,8 @@ namespace InvestAgent.Core.Agent;
 
 public class AgentSessionContext
 {
+    private readonly object _stateLock = new();
+
     public ConversationMemory Memory { get; }
     public AnalysisSessionState State { get; }
     public List<SessionChatMessage> Messages { get; }
@@ -20,5 +22,11 @@ public class AgentSessionContext
         State = state;
         Messages = messages ?? new List<SessionChatMessage>();
         WorkflowRuns = workflowRuns ?? new List<WorkflowRunRecord>();
+    }
+
+    public void ApplyPatch(SessionStatePatch patch)
+    {
+        lock (_stateLock)
+            patch.ApplyTo(State);
     }
 }

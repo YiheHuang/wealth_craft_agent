@@ -12,6 +12,7 @@
         MinWidth="1200"
         MinHeight="720"
         WindowStartupLocation="CenterScreen"
+        Icon="Assets/app.ico"
         Background="#F3F6FB">
     <Window.Resources>
         <converters:MarkdownToFlowDocumentConverter x:Key="MarkdownToFlowDocumentConverter" />
@@ -62,9 +63,32 @@
             <Setter Property="HorizontalAlignment" Value="Right" />
         </Style>
 
+        <Style x:Key="RangeShortcutButtonStyle" TargetType="Button" BasedOn="{StaticResource SecondaryButtonStyle}">
+            <Setter Property="Padding" Value="8,4" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Height" Value="26" />
+            <Setter Property="MinWidth" Value="48" />
+            <Setter Property="Margin" Value="0,0,6,0" />
+        </Style>
+
         <Style x:Key="CanvasTickContainerStyle" TargetType="ContentPresenter">
             <Setter Property="Canvas.Left" Value="{Binding X}" />
             <Setter Property="Canvas.Top" Value="{Binding Y}" />
+        </Style>
+
+        <Style x:Key="CandleContainerStyle" TargetType="ContentPresenter">
+            <Setter Property="Canvas.Left" Value="{Binding X}" />
+            <Setter Property="Canvas.Top" Value="0" />
+        </Style>
+
+        <Style x:Key="ChartHoverOverlayStyle" TargetType="Canvas">
+            <Setter Property="Visibility" Value="Collapsed" />
+            <Setter Property="IsHitTestVisible" Value="False" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsVisible}" Value="True">
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+            </Style.Triggers>
         </Style>
 
         <Style x:Key="CardTabItemStyle" TargetType="TabItem">
@@ -92,14 +116,15 @@
             <Setter Property="CornerRadius" Value="14" />
             <Setter Property="Padding" Value="14,10" />
             <Setter Property="Margin" Value="0,0,0,10" />
-            <Setter Property="MaxWidth" Value="720" />
-            <Setter Property="HorizontalAlignment" Value="Left" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
             <Setter Property="Background" Value="#F8FAFC" />
             <Setter Property="BorderBrush" Value="#E2E8F0" />
             <Setter Property="BorderThickness" Value="1" />
             <Style.Triggers>
                 <DataTrigger Binding="{Binding IsUser}" Value="True">
                     <Setter Property="HorizontalAlignment" Value="Right" />
+                    <Setter Property="MaxWidth" Value="360" />
+                    <Setter Property="Margin" Value="0,0,0,10" />
                     <Setter Property="Background" Value="#DBEAFE" />
                     <Setter Property="BorderBrush" Value="#93C5FD" />
                 </DataTrigger>
@@ -159,6 +184,7 @@
                 </DataTrigger>
             </Style.Triggers>
         </Style>
+
     </Window.Resources>
 
     <Grid Margin="18">
@@ -183,6 +209,9 @@
                                FontSize="22"
                                FontWeight="Bold"
                                Foreground="#0F172A" />
+                    <TextBlock Margin="0,4,0,0"
+                               Text="{Binding StatusText}"
+                               Style="{StaticResource MutedTextStyle}" />
                 </StackPanel>
 
                 <Grid Grid.Column="1" Margin="0,0,18,0" VerticalAlignment="Center">
@@ -192,6 +221,8 @@
                     <Grid Margin="0">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="120" />
+                            <ColumnDefinition Width="132" />
                             <ColumnDefinition Width="128" />
                         </Grid.ColumnDefinitions>
                         <TextBox Grid.Column="0"
@@ -202,7 +233,31 @@
                                  Padding="12,0"
                                  BorderBrush="#CBD5E1"
                                  ToolTip="请输入股票代码或股票名称，例如 600519、贵州茅台、比亚迪" />
-                        <Button Grid.Column="1"
+                        <StackPanel Grid.Column="1"
+                                    Margin="10,0,0,0"
+                                    VerticalAlignment="Center">
+                            <TextBlock Text="日K显示范围"
+                                       Style="{StaticResource MutedTextStyle}" />
+                            <TextBox Text="{Binding DailyDaysInputText, UpdateSourceTrigger=PropertyChanged}"
+                                     Height="24"
+                                     Margin="0,4,0,0"
+                                     Padding="6,0"
+                                     VerticalContentAlignment="Center"
+                                     ToolTip="只调整日K图表和表格显示范围，不会自动触发AI重新分析" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="2"
+                                    Margin="10,0,0,0"
+                                    VerticalAlignment="Center">
+                            <TextBlock Text="月K显示范围"
+                                       Style="{StaticResource MutedTextStyle}" />
+                            <TextBox Text="{Binding MonthlyMonthsInputText, UpdateSourceTrigger=PropertyChanged}"
+                                     Height="24"
+                                     Margin="0,4,0,0"
+                                     Padding="6,0"
+                                     VerticalContentAlignment="Center"
+                                     ToolTip="只调整月K图表和表格显示范围，不会自动触发AI重新分析" />
+                        </StackPanel>
+                        <Button Grid.Column="3"
                                 Margin="10,0,0,0"
                                 Height="42"
                                 Content="开始分析"
@@ -231,9 +286,9 @@
 
         <Grid Grid.Row="1">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="1.02*" />
+                <ColumnDefinition Width="1.15*" />
                 <ColumnDefinition Width="16" />
-                <ColumnDefinition Width="1.18*" />
+                <ColumnDefinition Width="1.05*" />
             </Grid.ColumnDefinitions>
 
             <Border Grid.Column="0"
@@ -277,7 +332,15 @@
                                     BorderThickness="1"
                                     CornerRadius="14"
                                     Padding="14">
-                                <FlowDocumentScrollViewer VerticalScrollBarVisibility="Auto"
+                                <FlowDocumentScrollViewer x:Name="BasicAnalysisScrollViewer"
+                                                          VerticalScrollBarVisibility="Visible"
+                                                          HorizontalScrollBarVisibility="Disabled"
+                                                          PreviewMouseWheel="FlowDocumentScrollViewer_PreviewMouseWheel"
+                                                          MouseEnter="AutoHideScrollViewer_MouseEnter"
+                                                          MouseLeave="AutoHideScrollViewer_MouseLeave"
+                                                          Loaded="FlowDocumentScrollViewer_Loaded"
+                                                          SizeChanged="FlowDocumentScrollViewer_SizeChanged"
+                                                          LayoutUpdated="FlowDocumentScrollViewer_LayoutUpdated"
                                                           IsToolBarVisible="False"
                                                           Document="{Binding BasicAnalysisResponse, Converter={StaticResource MarkdownToFlowDocumentConverter}}" />
                             </Border>
@@ -336,35 +399,56 @@
                                     BorderThickness="1"
                                     CornerRadius="14"
                                     Padding="16">
-                                <ScrollViewer VerticalScrollBarVisibility="Auto">
-                                    <ItemsControl ItemsSource="{Binding ChatMessages}">
-                                        <ItemsControl.ItemTemplate>
-                                            <DataTemplate>
-                                                <Border Style="{StaticResource ChatBubbleStyle}">
-                                                    <StackPanel>
-                                                        <TextBlock Text="{Binding RoleLabel}"
-                                                                   FontWeight="SemiBold"
-                                                                   Foreground="#0F172A" />
-                                                        <TextBlock Margin="0,8,0,0"
-                                                                   Text="{Binding Content}"
-                                                                   TextWrapping="Wrap"
-                                                                   Foreground="#0F172A"
-                                                                   FontSize="14"
-                                                                   Style="{StaticResource UserOnlyVisibilityStyle}" />
-                                                        <FlowDocumentScrollViewer Margin="0,8,0,0"
-                                                                                  IsToolBarVisible="False"
-                                                                                  VerticalScrollBarVisibility="Hidden"
-                                                                                  Document="{Binding Content, Converter={StaticResource MarkdownToFlowDocumentConverter}}"
-                                                                                  Style="{StaticResource AgentOnlyVisibilityStyle}" />
-                                                        <TextBlock Margin="0,8,0,0"
-                                                                   Text="{Binding Timestamp, StringFormat={}{0:yyyy-MM-dd HH:mm:ss}}"
-                                                                   Foreground="#64748B"
-                                                                   FontSize="11" />
-                                                    </StackPanel>
-                                                </Border>
-                                            </DataTemplate>
-                                        </ItemsControl.ItemTemplate>
-                                    </ItemsControl>
+                                <ScrollViewer x:Name="ChatScrollViewer"
+                                              PreviewMouseWheel="ChatScrollViewer_PreviewMouseWheel"
+                                              Loaded="AutoHideScrollViewer_Loaded"
+                                              MouseEnter="AutoHideScrollViewer_MouseEnter"
+                                              MouseLeave="AutoHideScrollViewer_MouseLeave"
+                                              VerticalScrollBarVisibility="Visible"
+                                              HorizontalScrollBarVisibility="Disabled">
+                                    <Grid>
+                                        <ItemsControl ItemsSource="{Binding ChatMessages}"
+                                                      HorizontalAlignment="Stretch">
+                                            <ItemsControl.ItemContainerStyle>
+                                                <Style TargetType="ContentPresenter">
+                                                    <Setter Property="HorizontalAlignment" Value="Stretch" />
+                                                </Style>
+                                            </ItemsControl.ItemContainerStyle>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Grid HorizontalAlignment="Stretch">
+                                                        <Border Style="{StaticResource ChatBubbleStyle}">
+                                                            <StackPanel>
+                                                                <TextBlock Text="{Binding RoleLabel}"
+                                                                           FontWeight="SemiBold"
+                                                                           Foreground="#0F172A" />
+                                                                <TextBlock Margin="0,8,0,0"
+                                                                           Text="{Binding Content}"
+                                                                           TextWrapping="Wrap"
+                                                                           Foreground="#0F172A"
+                                                                           FontSize="14"
+                                                                           Style="{StaticResource UserOnlyVisibilityStyle}" />
+                                                                <FlowDocumentScrollViewer Margin="0,8,0,0"
+                                                                                          IsToolBarVisible="False"
+                                                                                          VerticalScrollBarVisibility="Hidden"
+                                                                                          HorizontalScrollBarVisibility="Disabled"
+                                                                                          PreviewMouseWheel="FlowDocumentScrollViewer_PreviewMouseWheel"
+                                                                                          Loaded="FlowDocumentScrollViewer_Loaded"
+                                                                                          SizeChanged="FlowDocumentScrollViewer_SizeChanged"
+                                                                                          LayoutUpdated="FlowDocumentScrollViewer_LayoutUpdated"
+                                                                                          Document="{Binding Content, Converter={StaticResource MarkdownToFlowDocumentConverter}}"
+                                                                                          Style="{StaticResource AgentOnlyVisibilityStyle}" />
+                                                                <TextBlock Margin="0,8,0,0"
+                                                                           Text="{Binding Timestamp, StringFormat={}{0:yyyy-MM-dd HH:mm:ss}}"
+                                                                           Foreground="#64748B"
+                                                                           FontSize="11" />
+                                                            </StackPanel>
+                                                        </Border>
+                                                    </Grid>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </Grid>
                                 </ScrollViewer>
                             </Border>
 
@@ -378,6 +462,7 @@
                                          MaxHeight="140"
                                          Text="{Binding ChatInput, UpdateSourceTrigger=PropertyChanged}"
                                          AcceptsReturn="True"
+                                         PreviewKeyDown="ChatInputTextBox_PreviewKeyDown"
                                          TextWrapping="Wrap"
                                          VerticalScrollBarVisibility="Auto"
                                          Padding="14"
@@ -403,7 +488,7 @@
                     <Style BasedOn="{StaticResource CardTabItemStyle}" TargetType="TabItem" />
                 </TabControl.Resources>
 
-                <TabItem Header="近一年月K线">
+                <TabItem Header="{Binding MonthlyTabTitle}">
                     <Grid Margin="6">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
@@ -415,15 +500,116 @@
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0"
-                                       Text="近一年月K线完整数据"
-                                       Style="{StaticResource SectionTitleStyle}"
-                                       VerticalAlignment="Center" />
-                            <Button Grid.Column="1"
-                                    Content="图表 / 表格"
-                                    Style="{StaticResource ChartToggleButtonStyle}"
-                                    Margin="12,0,0,0"
-                                    Command="{Binding ToggleMonthlyViewCommand}" />
+                            <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                <TextBlock Text="{Binding MonthlyChartTitle}"
+                                           Style="{StaticResource SectionTitleStyle}" />
+                                <TextBlock Margin="0,4,0,0"
+                                           Text="{Binding MonthlyChartWindowLabel}"
+                                           Style="{StaticResource MutedTextStyle}" />
+                                <TextBlock Margin="0,4,0,0"
+                                           Text="{Binding KLineAnalysisRangeLabel}"
+                                           Style="{StaticResource MutedTextStyle}" />
+                                <WrapPanel Margin="0,7,0,0">
+                                    <Button Content="6月"
+                                            Command="{Binding SetMonthlyRangeCommand}"
+                                            CommandParameter="6"
+                                            Style="{StaticResource RangeShortcutButtonStyle}" />
+                                    <Button Content="12月"
+                                            Command="{Binding SetMonthlyRangeCommand}"
+                                            CommandParameter="12"
+                                            Style="{StaticResource RangeShortcutButtonStyle}" />
+                                    <Button Content="24月"
+                                            Command="{Binding SetMonthlyRangeCommand}"
+                                            CommandParameter="24"
+                                            Style="{StaticResource RangeShortcutButtonStyle}" />
+                                    <Button Content="36月"
+                                            Command="{Binding SetMonthlyRangeCommand}"
+                                            CommandParameter="36"
+                                            Style="{StaticResource RangeShortcutButtonStyle}" />
+                                    <Button Content="60月"
+                                            Command="{Binding SetMonthlyRangeCommand}"
+                                            CommandParameter="60"
+                                            Style="{StaticResource RangeShortcutButtonStyle}" />
+                                    <Button Content="120月"
+                                            Command="{Binding SetMonthlyRangeCommand}"
+                                            CommandParameter="120"
+                                            Style="{StaticResource RangeShortcutButtonStyle}" />
+                                </WrapPanel>
+                                <Grid Margin="0,10,0,0"
+                                      Width="560"
+                                      MaxWidth="560"
+                                      HorizontalAlignment="Left">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="72" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="76" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0"
+                                               Text="范围调节"
+                                               Margin="0,0,12,0"
+                                               VerticalAlignment="Center"
+                                               Style="{StaticResource MutedTextStyle}" />
+                                    <Slider Grid.Column="1"
+                                            Height="28"
+                                            Minimum="1"
+                                            Maximum="180"
+                                            TickFrequency="1"
+                                            SmallChange="1"
+                                            LargeChange="12"
+                                            IsSnapToTickEnabled="True"
+                                            Value="{Binding MonthlyMonthsInput, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                    <TextBlock Grid.Column="2"
+                                               Text="{Binding MonthlyMonthsInput, StringFormat={}{0}月}"
+                                               Margin="12,0,0,0"
+                                               VerticalAlignment="Center"
+                                               FontSize="12"
+                                               FontWeight="SemiBold"
+                                               Foreground="#475569" />
+                                </Grid>
+                                <WrapPanel Margin="0,7,0,0"
+                                           VerticalAlignment="Center">
+                                    <WrapPanel.Style>
+                                        <Style TargetType="WrapPanel">
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsKLineRangeNoticeVisible}" Value="True">
+                                                    <Setter Property="Visibility" Value="Visible" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </WrapPanel.Style>
+                                    <TextBlock Text="{Binding KLineRangeNotice}"
+                                               Foreground="#A16207"
+                                               FontSize="12"
+                                               Margin="0,0,10,4"
+                                               VerticalAlignment="Center" />
+                                    <Button Content="按当前图表重新分析"
+                                            MinWidth="168"
+                                            Height="32"
+                                            Margin="0,0,0,4"
+                                            Padding="12,4"
+                                            FontSize="12"
+                                            HorizontalContentAlignment="Center"
+                                            VerticalContentAlignment="Center"
+                                            Style="{StaticResource SecondaryButtonStyle}"
+                                            Command="{Binding ReanalyzeCurrentChartRangeCommand}" />
+                                </WrapPanel>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1"
+                                        Orientation="Horizontal"
+                                        HorizontalAlignment="Right"
+                                        VerticalAlignment="Center">
+                                <Button Content="重置"
+                                        Height="32"
+                                        MinWidth="58"
+                                        ToolTip="恢复显示全部"
+                                        Style="{StaticResource SecondaryButtonStyle}"
+                                        Command="{Binding ResetMonthlyChartCommand}" />
+                                <Button Content="图表 / 表格"
+                                        Style="{StaticResource ChartToggleButtonStyle}"
+                                        Margin="10,0,0,0"
+                                        Command="{Binding ToggleMonthlyViewCommand}" />
+                            </StackPanel>
                         </Grid>
 
                         <Grid Grid.Row="1">
@@ -435,19 +621,48 @@
                                         Padding="10"
                                         MinHeight="400">
                                     <Viewbox Stretch="Uniform" StretchDirection="DownOnly">
-                                        <Canvas Width="1220" Height="420">
+                                        <Canvas x:Name="MonthlyChartCanvas"
+                                                Width="1220"
+                                                Height="420"
+                                                Background="Transparent"
+                                                Cursor="SizeWE"
+                                                PreviewMouseWheel="MonthlyChartCanvas_PreviewMouseWheel"
+                                                PreviewMouseLeftButtonDown="MonthlyChartCanvas_PreviewMouseLeftButtonDown"
+                                                PreviewMouseLeftButtonUp="ChartCanvas_PreviewMouseLeftButtonUp"
+                                                PreviewMouseMove="MonthlyChartCanvas_PreviewMouseMove"
+                                                MouseLeave="MonthlyChartCanvas_MouseLeave"
+                                                LostMouseCapture="ChartCanvas_LostMouseCapture">
                                             <Line X1="78" Y1="28" X2="78" Y2="354" Stroke="#94A3B8" StrokeThickness="1.2" />
                                             <Line X1="78" Y1="354" X2="1190" Y2="354" Stroke="#94A3B8" StrokeThickness="1.2" />
 
-                                            <ItemsControl ItemsSource="{Binding MonthlySegments}">
+                                            <ItemsControl ItemsSource="{Binding MonthlyCandles}">
                                                 <ItemsControl.ItemsPanel>
                                                     <ItemsPanelTemplate>
                                                         <Canvas />
                                                     </ItemsPanelTemplate>
                                                 </ItemsControl.ItemsPanel>
+                                                <ItemsControl.ItemContainerStyle>
+                                                    <Style BasedOn="{StaticResource CandleContainerStyle}" TargetType="ContentPresenter" />
+                                                </ItemsControl.ItemContainerStyle>
                                                 <ItemsControl.ItemTemplate>
                                                     <DataTemplate>
-                                                        <Line X1="{Binding X1}" Y1="{Binding Y1}" X2="{Binding X2}" Y2="{Binding Y2}" Stroke="{Binding Stroke}" StrokeThickness="2" />
+                                                        <Canvas Width="{Binding BodyWidth}"
+                                                                Height="420"
+                                                                Background="Transparent"
+                                                                Cursor="SizeWE">
+                                                            <Line X1="{Binding WickOffset}"
+                                                                  X2="{Binding WickOffset}"
+                                                                  Y1="{Binding WickTop}"
+                                                                  Y2="{Binding WickBottom}"
+                                                                  Stroke="{Binding Stroke}"
+                                                                  StrokeThickness="1.4" />
+                                                            <Rectangle Canvas.Top="{Binding BodyY}"
+                                                                       Width="{Binding BodyWidth}"
+                                                                       Height="{Binding BodyHeight}"
+                                                                       Fill="{Binding Fill}"
+                                                                       Stroke="{Binding Stroke}"
+                                                                       StrokeThickness="1.2" />
+                                                        </Canvas>
                                                     </DataTemplate>
                                                 </ItemsControl.ItemTemplate>
                                             </ItemsControl>
@@ -484,41 +699,6 @@
                                                 </ItemsControl.ItemTemplate>
                                             </ItemsControl>
 
-                                            <ItemsControl ItemsSource="{Binding MonthlyPoints}">
-                                                <ItemsControl.ItemsPanel>
-                                                    <ItemsPanelTemplate>
-                                                        <Canvas />
-                                                    </ItemsPanelTemplate>
-                                                </ItemsControl.ItemsPanel>
-                                                <ItemsControl.ItemContainerStyle>
-                                                    <Style BasedOn="{StaticResource CanvasTickContainerStyle}" TargetType="ContentPresenter" />
-                                                </ItemsControl.ItemContainerStyle>
-                                                <ItemsControl.ItemTemplate>
-                                                    <DataTemplate>
-                                                        <Grid Width="{Binding Diameter}"
-                                                              Height="{Binding Diameter}"
-                                                              Background="Transparent"
-                                                              ToolTip="{Binding ToolTip}">
-                                                            <Ellipse x:Name="MonthlyPointDot"
-                                                                     Width="12"
-                                                                     Height="12"
-                                                                     HorizontalAlignment="Center"
-                                                                     VerticalAlignment="Center"
-                                                                     Fill="{Binding Fill}"
-                                                                     Stroke="White"
-                                                                     StrokeThickness="1.8" />
-                                                        </Grid>
-                                                        <DataTemplate.Triggers>
-                                                            <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType=Grid}, Path=IsMouseOver}" Value="True">
-                                                                <Setter TargetName="MonthlyPointDot" Property="Width" Value="18" />
-                                                                <Setter TargetName="MonthlyPointDot" Property="Height" Value="18" />
-                                                                <Setter TargetName="MonthlyPointDot" Property="StrokeThickness" Value="2.4" />
-                                                            </DataTrigger>
-                                                        </DataTemplate.Triggers>
-                                                    </DataTemplate>
-                                                </ItemsControl.ItemTemplate>
-                                            </ItemsControl>
-
                                             <TextBlock Text="价格"
                                                        Foreground="#64748B"
                                                        FontSize="14"
@@ -531,6 +711,48 @@
                                                        FontWeight="SemiBold"
                                                        Canvas.Left="590"
                                                        Canvas.Top="392" />
+
+                                            <Canvas Width="1220"
+                                                    Height="420"
+                                                    DataContext="{Binding MonthlyChartHover}"
+                                                    Style="{StaticResource ChartHoverOverlayStyle}">
+                                                <Line X1="{Binding X}" X2="{Binding X}"
+                                                      Y1="28" Y2="354"
+                                                      Stroke="{Binding Accent}"
+                                                      StrokeThickness="1.2"
+                                                      StrokeDashArray="4 4"
+                                                      Opacity="0.65" />
+                                                <Line X1="78" X2="1190"
+                                                      Y1="{Binding Y}" Y2="{Binding Y}"
+                                                      Stroke="{Binding Accent}"
+                                                      StrokeThickness="1.2"
+                                                      StrokeDashArray="4 4"
+                                                      Opacity="0.65" />
+                                                <Ellipse Canvas.Left="{Binding MarkerX}"
+                                                         Canvas.Top="{Binding MarkerY}"
+                                                         Width="8"
+                                                         Height="8"
+                                                         Fill="{Binding Accent}"
+                                                         Stroke="White"
+                                                         StrokeThickness="2" />
+                                                <Border Canvas.Left="{Binding PanelX}"
+                                                        Canvas.Top="{Binding PanelY}"
+                                                        Width="300"
+                                                        Background="#F8FAFC"
+                                                        BorderBrush="{Binding Accent}"
+                                                        BorderThickness="1.5"
+                                                        CornerRadius="8"
+                                                        Padding="14"
+                                                        Opacity="0.98">
+                                                    <TextBlock Text="{Binding Label}"
+                                                               Foreground="#0F172A"
+                                                               FontSize="15"
+                                                               FontWeight="SemiBold"
+                                                               FontFamily="Consolas"
+                                                               TextWrapping="Wrap"
+                                                               LineHeight="24" />
+                                                </Border>
+                                            </Canvas>
                                         </Canvas>
                                     </Viewbox>
                                 </Border>
@@ -556,7 +778,7 @@
                     </Grid>
                 </TabItem>
 
-                <TabItem Header="近三个月日K线">
+                <TabItem Header="{Binding DailyTabTitle}">
                     <Grid Margin="6">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
@@ -568,15 +790,120 @@
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0"
-                                       Text="近三个月日K线完整数据"
-                                       Style="{StaticResource SectionTitleStyle}"
-                                       VerticalAlignment="Center" />
-                            <Button Grid.Column="1"
-                                    Content="图表 / 表格"
-                                    Style="{StaticResource ChartToggleButtonStyle}"
-                                    Margin="12,0,0,0"
-                                    Command="{Binding ToggleDailyViewCommand}" />
+                            <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                <TextBlock Text="{Binding DailyChartTitle}"
+                                           Style="{StaticResource SectionTitleStyle}" />
+                                <TextBlock Margin="0,4,0,0"
+                                           Text="{Binding DailyChartWindowLabel}"
+                                           Style="{StaticResource MutedTextStyle}" />
+                                <TextBlock Margin="0,4,0,0"
+                                           Text="{Binding KLineAnalysisRangeLabel}"
+                                           Style="{StaticResource MutedTextStyle}" />
+                                <WrapPanel Margin="0,7,0,0">
+                                    <Button Content="30日"
+                                            Command="{Binding SetDailyRangeCommand}"
+                                            CommandParameter="30"
+                                            Style="{StaticResource RangeShortcutButtonStyle}" />
+                                    <Button Content="60日"
+                                            Command="{Binding SetDailyRangeCommand}"
+                                            CommandParameter="60"
+                                            Style="{StaticResource RangeShortcutButtonStyle}" />
+                                    <Button Content="90日"
+                                            Command="{Binding SetDailyRangeCommand}"
+                                            CommandParameter="90"
+                                            Style="{StaticResource RangeShortcutButtonStyle}" />
+                                    <Button Content="200日"
+                                            Command="{Binding SetDailyRangeCommand}"
+                                            CommandParameter="200"
+                                            Style="{StaticResource RangeShortcutButtonStyle}" />
+                                    <Button Content="1年"
+                                            Command="{Binding SetDailyRangeCommand}"
+                                            CommandParameter="250"
+                                            Style="{StaticResource RangeShortcutButtonStyle}" />
+                                    <Button Content="3年"
+                                            Command="{Binding SetDailyRangeCommand}"
+                                            CommandParameter="750"
+                                            Style="{StaticResource RangeShortcutButtonStyle}" />
+                                    <Button Content="5年"
+                                            Command="{Binding SetDailyRangeCommand}"
+                                            CommandParameter="1200"
+                                            Style="{StaticResource RangeShortcutButtonStyle}" />
+                                </WrapPanel>
+                                <Grid Margin="0,10,0,0"
+                                      Width="620"
+                                      MaxWidth="620"
+                                      HorizontalAlignment="Left">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="72" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="84" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0"
+                                               Text="范围调节"
+                                               Margin="0,0,12,0"
+                                               VerticalAlignment="Center"
+                                               Style="{StaticResource MutedTextStyle}" />
+                                    <Slider Grid.Column="1"
+                                            Height="28"
+                                            Minimum="5"
+                                            Maximum="1200"
+                                            TickFrequency="5"
+                                            SmallChange="5"
+                                            LargeChange="50"
+                                            IsSnapToTickEnabled="True"
+                                            Value="{Binding DailyDaysInput, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                    <TextBlock Grid.Column="2"
+                                               Text="{Binding DailyDaysInput, StringFormat={}{0}日}"
+                                               Margin="12,0,0,0"
+                                               VerticalAlignment="Center"
+                                               FontSize="12"
+                                               FontWeight="SemiBold"
+                                               Foreground="#475569" />
+                                </Grid>
+                                <WrapPanel Margin="0,7,0,0"
+                                           VerticalAlignment="Center">
+                                    <WrapPanel.Style>
+                                        <Style TargetType="WrapPanel">
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsKLineRangeNoticeVisible}" Value="True">
+                                                    <Setter Property="Visibility" Value="Visible" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </WrapPanel.Style>
+                                    <TextBlock Text="{Binding KLineRangeNotice}"
+                                               Foreground="#A16207"
+                                               FontSize="12"
+                                               Margin="0,0,10,4"
+                                               VerticalAlignment="Center" />
+                                    <Button Content="按当前图表重新分析"
+                                            MinWidth="168"
+                                            Height="32"
+                                            Margin="0,0,0,4"
+                                            Padding="12,4"
+                                            FontSize="12"
+                                            HorizontalContentAlignment="Center"
+                                            VerticalContentAlignment="Center"
+                                            Style="{StaticResource SecondaryButtonStyle}"
+                                            Command="{Binding ReanalyzeCurrentChartRangeCommand}" />
+                                </WrapPanel>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1"
+                                        Orientation="Horizontal"
+                                        HorizontalAlignment="Right"
+                                        VerticalAlignment="Center">
+                                <Button Content="重置"
+                                        Height="32"
+                                        MinWidth="58"
+                                        ToolTip="恢复显示全部"
+                                        Style="{StaticResource SecondaryButtonStyle}"
+                                        Command="{Binding ResetDailyChartCommand}" />
+                                <Button Content="图表 / 表格"
+                                        Style="{StaticResource ChartToggleButtonStyle}"
+                                        Margin="10,0,0,0"
+                                        Command="{Binding ToggleDailyViewCommand}" />
+                            </StackPanel>
                         </Grid>
 
                         <Grid Grid.Row="1">
@@ -588,19 +915,48 @@
                                         Padding="10"
                                         MinHeight="400">
                                     <Viewbox Stretch="Uniform" StretchDirection="DownOnly">
-                                        <Canvas Width="1220" Height="420">
+                                        <Canvas x:Name="DailyChartCanvas"
+                                                Width="1220"
+                                                Height="420"
+                                                Background="Transparent"
+                                                Cursor="SizeWE"
+                                                PreviewMouseWheel="DailyChartCanvas_PreviewMouseWheel"
+                                                PreviewMouseLeftButtonDown="DailyChartCanvas_PreviewMouseLeftButtonDown"
+                                                PreviewMouseLeftButtonUp="ChartCanvas_PreviewMouseLeftButtonUp"
+                                                PreviewMouseMove="DailyChartCanvas_PreviewMouseMove"
+                                                MouseLeave="DailyChartCanvas_MouseLeave"
+                                                LostMouseCapture="ChartCanvas_LostMouseCapture">
                                             <Line X1="78" Y1="28" X2="78" Y2="354" Stroke="#94A3B8" StrokeThickness="1.2" />
                                             <Line X1="78" Y1="354" X2="1190" Y2="354" Stroke="#94A3B8" StrokeThickness="1.2" />
 
-                                            <ItemsControl ItemsSource="{Binding DailySegments}">
+                                            <ItemsControl ItemsSource="{Binding DailyCandles}">
                                                 <ItemsControl.ItemsPanel>
                                                     <ItemsPanelTemplate>
                                                         <Canvas />
                                                     </ItemsPanelTemplate>
                                                 </ItemsControl.ItemsPanel>
+                                                <ItemsControl.ItemContainerStyle>
+                                                    <Style BasedOn="{StaticResource CandleContainerStyle}" TargetType="ContentPresenter" />
+                                                </ItemsControl.ItemContainerStyle>
                                                 <ItemsControl.ItemTemplate>
                                                     <DataTemplate>
-                                                        <Line X1="{Binding X1}" Y1="{Binding Y1}" X2="{Binding X2}" Y2="{Binding Y2}" Stroke="{Binding Stroke}" StrokeThickness="2" />
+                                                        <Canvas Width="{Binding BodyWidth}"
+                                                                Height="420"
+                                                                Background="Transparent"
+                                                                Cursor="SizeWE">
+                                                            <Line X1="{Binding WickOffset}"
+                                                                  X2="{Binding WickOffset}"
+                                                                  Y1="{Binding WickTop}"
+                                                                  Y2="{Binding WickBottom}"
+                                                                  Stroke="{Binding Stroke}"
+                                                                  StrokeThickness="1.4" />
+                                                            <Rectangle Canvas.Top="{Binding BodyY}"
+                                                                       Width="{Binding BodyWidth}"
+                                                                       Height="{Binding BodyHeight}"
+                                                                       Fill="{Binding Fill}"
+                                                                       Stroke="{Binding Stroke}"
+                                                                       StrokeThickness="1.2" />
+                                                        </Canvas>
                                                     </DataTemplate>
                                                 </ItemsControl.ItemTemplate>
                                             </ItemsControl>
@@ -637,41 +993,6 @@
                                                 </ItemsControl.ItemTemplate>
                                             </ItemsControl>
 
-                                            <ItemsControl ItemsSource="{Binding DailyPoints}">
-                                                <ItemsControl.ItemsPanel>
-                                                    <ItemsPanelTemplate>
-                                                        <Canvas />
-                                                    </ItemsPanelTemplate>
-                                                </ItemsControl.ItemsPanel>
-                                                <ItemsControl.ItemContainerStyle>
-                                                    <Style BasedOn="{StaticResource CanvasTickContainerStyle}" TargetType="ContentPresenter" />
-                                                </ItemsControl.ItemContainerStyle>
-                                                <ItemsControl.ItemTemplate>
-                                                    <DataTemplate>
-                                                        <Grid Width="{Binding Diameter}"
-                                                              Height="{Binding Diameter}"
-                                                              Background="Transparent"
-                                                              ToolTip="{Binding ToolTip}">
-                                                            <Ellipse x:Name="DailyPointDot"
-                                                                     Width="12"
-                                                                     Height="12"
-                                                                     HorizontalAlignment="Center"
-                                                                     VerticalAlignment="Center"
-                                                                     Fill="{Binding Fill}"
-                                                                     Stroke="White"
-                                                                     StrokeThickness="1.8" />
-                                                        </Grid>
-                                                        <DataTemplate.Triggers>
-                                                            <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType=Grid}, Path=IsMouseOver}" Value="True">
-                                                                <Setter TargetName="DailyPointDot" Property="Width" Value="18" />
-                                                                <Setter TargetName="DailyPointDot" Property="Height" Value="18" />
-                                                                <Setter TargetName="DailyPointDot" Property="StrokeThickness" Value="2.4" />
-                                                            </DataTrigger>
-                                                        </DataTemplate.Triggers>
-                                                    </DataTemplate>
-                                                </ItemsControl.ItemTemplate>
-                                            </ItemsControl>
-
                                             <TextBlock Text="价格"
                                                        Foreground="#64748B"
                                                        FontSize="14"
@@ -684,6 +1005,48 @@
                                                        FontWeight="SemiBold"
                                                        Canvas.Left="590"
                                                        Canvas.Top="392" />
+
+                                            <Canvas Width="1220"
+                                                    Height="420"
+                                                    DataContext="{Binding DailyChartHover}"
+                                                    Style="{StaticResource ChartHoverOverlayStyle}">
+                                                <Line X1="{Binding X}" X2="{Binding X}"
+                                                      Y1="28" Y2="354"
+                                                      Stroke="{Binding Accent}"
+                                                      StrokeThickness="1.2"
+                                                      StrokeDashArray="4 4"
+                                                      Opacity="0.65" />
+                                                <Line X1="78" X2="1190"
+                                                      Y1="{Binding Y}" Y2="{Binding Y}"
+                                                      Stroke="{Binding Accent}"
+                                                      StrokeThickness="1.2"
+                                                      StrokeDashArray="4 4"
+                                                      Opacity="0.65" />
+                                                <Ellipse Canvas.Left="{Binding MarkerX}"
+                                                         Canvas.Top="{Binding MarkerY}"
+                                                         Width="8"
+                                                         Height="8"
+                                                         Fill="{Binding Accent}"
+                                                         Stroke="White"
+                                                         StrokeThickness="2" />
+                                                <Border Canvas.Left="{Binding PanelX}"
+                                                        Canvas.Top="{Binding PanelY}"
+                                                        Width="300"
+                                                        Background="#F8FAFC"
+                                                        BorderBrush="{Binding Accent}"
+                                                        BorderThickness="1.5"
+                                                        CornerRadius="8"
+                                                        Padding="14"
+                                                        Opacity="0.98">
+                                                    <TextBlock Text="{Binding Label}"
+                                                               Foreground="#0F172A"
+                                                               FontSize="15"
+                                                               FontWeight="SemiBold"
+                                                               FontFamily="Consolas"
+                                                               TextWrapping="Wrap"
+                                                               LineHeight="24" />
+                                                </Border>
+                                            </Canvas>
                                         </Canvas>
                                     </Viewbox>
                                 </Border>

@@ -45,18 +45,29 @@ public class YahooFinanceStockService : IStockDataService
 
     public async Task<List<StockKLine>> GetHistoricalPricesAsync(string symbol, int days = 30)
     {
-        var range = days <= 5 ? "5d" : days <= 30 ? "1mo" : days <= 90 ? "3mo" : "6mo";
+        var range = days <= 5 ? "5d"
+            : days <= 30 ? "1mo"
+            : days <= 90 ? "3mo"
+            : days <= 180 ? "6mo"
+            : days <= 365 ? "1y"
+            : days <= 730 ? "2y"
+            : days <= 1825 ? "5y"
+            : "10y";
         var yahooSymbol = ToYahooSymbol(symbol);
         var data = await FetchChartAsync(yahooSymbol, range, "1d");
-        return data == null ? new List<StockKLine>() : ToKLineList(symbol, data.Value);
+        return data == null ? new List<StockKLine>() : ToKLineList(symbol, data.Value).TakeLast(Math.Max(1, days)).ToList();
     }
 
     public async Task<List<StockKLine>> GetMonthlyKLineAsync(string symbol, int months = 36)
     {
-        var range = months <= 12 ? "1y" : months <= 24 ? "2y" : "5y";
+        var range = months <= 12 ? "1y"
+            : months <= 24 ? "2y"
+            : months <= 60 ? "5y"
+            : months <= 120 ? "10y"
+            : "max";
         var yahooSymbol = ToYahooSymbol(symbol);
         var data = await FetchChartAsync(yahooSymbol, range, "1mo");
-        return data == null ? new List<StockKLine>() : ToKLineList(symbol, data.Value);
+        return data == null ? new List<StockKLine>() : ToKLineList(symbol, data.Value).TakeLast(Math.Max(1, months)).ToList();
     }
 
     public async Task<List<StockQuote>> SearchStockAsync(string keyword)

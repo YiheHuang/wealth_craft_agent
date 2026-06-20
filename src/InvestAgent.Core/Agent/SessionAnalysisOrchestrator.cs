@@ -56,7 +56,7 @@ public class SessionAnalysisOrchestrator : ISessionAnalysisOrchestrator
             new() { Agent = "D", IsInitialAnalysis = true, Instruction = $"对 {context.State.Symbol} 做初始财务分析，使用当前默认窗口。", FinancialYears = context.State.FinancialYears }
         };
 
-        steps.AddRange(await ExecuteTasksAsync(context, tasks, turnIndex, observer));
+        steps.AddRange(await ExecuteInitialTasksInParallelAsync(context, tasks, turnIndex, observer));
         await FinalizeAssistantResponseAsync(context, targetInput, tasks, steps, "初始分析", turnIndex, isInitialAnalysis: true, observer);
         return steps;
     }
@@ -82,7 +82,7 @@ public class SessionAnalysisOrchestrator : ISessionAnalysisOrchestrator
                 FinalResponse = rejectText,
                 FinalRiskAdvice = rejectText
             };
-            rejectPatch.ApplyTo(context.State);
+            context.ApplyPatch(rejectPatch);
             await NotifyStatePatchedAsync(context, rejectPatch, observer);
             AddWorkflowRun(context, "Agent A", rejectTurnIndex, reject);
             return reject;
@@ -119,7 +119,7 @@ public class SessionAnalysisOrchestrator : ISessionAnalysisOrchestrator
                 FinalResponse = assistantText,
                 FinalRiskAdvice = assistantText
             };
-            clarifyPatch.ApplyTo(context.State);
+            context.ApplyPatch(clarifyPatch);
             await NotifyStatePatchedAsync(context, clarifyPatch, observer);
             AddWorkflowRun(context, "Agent A", turnIndex, steps);
             return steps;
@@ -145,7 +145,7 @@ public class SessionAnalysisOrchestrator : ISessionAnalysisOrchestrator
             StockName = stockName,
             MainBusiness = rawBusiness
         };
-        seedPatch.ApplyTo(context.State);
+        context.ApplyPatch(seedPatch);
         await NotifyStatePatchedAsync(context, seedPatch, observer);
 
         var expanded = await _promptRunner.RunPromptStreamingAsync(
@@ -158,7 +158,7 @@ public class SessionAnalysisOrchestrator : ISessionAnalysisOrchestrator
                     StockName = stockName,
                     MainBusiness = partial
                 };
-                patch.ApplyTo(context.State);
+                context.ApplyPatch(patch);
                 await NotifyStatePatchedAsync(context, patch, observer);
             },
             0.2,
@@ -170,7 +170,7 @@ public class SessionAnalysisOrchestrator : ISessionAnalysisOrchestrator
             StockName = stockName,
             MainBusiness = string.IsNullOrWhiteSpace(expanded) ? rawBusiness : expanded
         };
-        finalPatch.ApplyTo(context.State);
+        context.ApplyPatch(finalPatch);
         await NotifyStatePatchedAsync(context, finalPatch, observer);
     }
 
@@ -209,10 +209,11 @@ public class SessionAnalysisOrchestrator : ISessionAnalysisOrchestrator
         prompt.AppendLine("2. 新闻/公告/积极/消极/行业新闻 -> Agent C");
         prompt.AppendLine("3. 财务/年报/季度/五年财务 -> Agent D");
         prompt.AppendLine("4. 若用户请求当前会话之外的另一只股票，则 mode=reject_switch。");
-        prompt.AppendLine("5. 若用户请求最近一年的日K，dailyDays=250。");
-        prompt.AppendLine("6. 若用户请求五年的财务报告，financialYears=5。");
-        prompt.AppendLine("7. 若提到缠论、分型、笔、中枢、背驰、买卖点，则 useChanTheory=true。");
-        prompt.AppendLine("8. 若提到只看积极/只看消极新闻，则设置 newsSentimentFilter。");
+        prompt.AppendLine("5. 若用户指定日K天数，例如180天/250个交易日，则 dailyDays=对应数字；最近一年日K dailyDays=250，半年日K dailyDays=125。");
+        prompt.AppendLine("6. 若用户指定月K月份，例如24个月/5年月K，则 monthlyMonths=对应月份。");
+        prompt.AppendLine("7. 若用户请求五年的财务报告，financialYears=5。");
+        prompt.AppendLine("8. 若提到缠论、分型、笔、中枢、背驰、买卖点，则 useChanTheory=true。");
+        prompt.AppendLine("9. 若提到只看积极/只看消极新闻，则设置 newsSentimentFilter。");
 
         var raw = await _promptRunner.RunPromptAsync(
             "你是 Agent A 的调度器，只负责把中文追问转成结构化派单 JSON。",
@@ -245,13 +246,85 @@ public class SessionAnalysisOrchestrator : ISessionAnalysisOrchestrator
                 continue;
             }
 
-            var subResult = await service.ExecuteAsync(context, task, observer, triggerTurnIndex);
-            subResult.StatePatch.ApplyTo(context.State);
-            await NotifyStatePatchedAsync(context, subResult.StatePatch, observer);
-            steps.AddRange(subResult.WorkflowSteps);
-            AddWorkflowRun(context, service.AgentName, triggerTurnIndex, subResult.WorkflowSteps);
+            try
+            {
+                var subResult = await service.ExecuteAsync(context, task, observer, triggerTurnIndex);
+                context.ApplyPatch(subResult.StatePatch);
+                await NotifyStatePatchedAsync(context, subResult.StatePatch, observer);
+                steps.AddRange(subResult.WorkflowSteps);
+                AddWorkflowRun(context, service.AgentName, triggerTurnIndex, subResult.WorkflowSteps);
+            }
+            catch (Exception ex)
+            {
+                var failureStep = new AgentStep
+                {
+                    Type = AgentStepType.Response,
+                    Content = $"{service.AgentName} 执行失败，已跳过该模块并继续后续分析。原因：{BuildExceptionSummary(ex)}"
+                };
+                await AppendStepAsync(context, steps, service.AgentName, failureStep, triggerTurnIndex, observer);
+                AddWorkflowRun(context, service.AgentName, triggerTurnIndex, new List<AgentStep> { failureStep });
+            }
         }
         return steps;
+    }
+
+    private async Task<List<AgentStep>> ExecuteInitialTasksInParallelAsync(
+        AgentSessionContext context,
+        List<SubAgentTask> tasks,
+        int triggerTurnIndex,
+        IAnalysisStreamingObserver? observer)
+    {
+        var runs = tasks
+            .Select((task, index) => ExecuteSubAgentTaskAsync(context, task, index, triggerTurnIndex, observer))
+            .ToArray();
+
+        var results = await Task.WhenAll(runs);
+        var steps = new List<AgentStep>();
+        foreach (var result in results.OrderBy(x => x.Index))
+        {
+            steps.AddRange(result.Steps);
+            AddWorkflowRun(context, result.AgentName, triggerTurnIndex, result.Steps);
+        }
+
+        return steps;
+    }
+
+    private async Task<SubAgentRunResult> ExecuteSubAgentTaskAsync(
+        AgentSessionContext context,
+        SubAgentTask task,
+        int index,
+        int triggerTurnIndex,
+        IAnalysisStreamingObserver? observer)
+    {
+        var key = NormalizeAgentKey(task.Agent);
+        if (!_subAgents.TryGetValue(key, out var service))
+        {
+            var missingSteps = new List<AgentStep>();
+            await AppendStepAsync(context, missingSteps, "Agent A", new AgentStep
+            {
+                Type = AgentStepType.Response,
+                Content = $"未找到可执行的子代理: {task.Agent}"
+            }, triggerTurnIndex, observer);
+            return new SubAgentRunResult(index, "Agent A", missingSteps);
+        }
+
+        try
+        {
+            var subResult = await service.ExecuteAsync(context, task, observer, triggerTurnIndex);
+            context.ApplyPatch(subResult.StatePatch);
+            await NotifyStatePatchedAsync(context, subResult.StatePatch, observer);
+            return new SubAgentRunResult(index, service.AgentName, subResult.WorkflowSteps);
+        }
+        catch (Exception ex)
+        {
+            var failureSteps = new List<AgentStep>();
+            await AppendStepAsync(context, failureSteps, service.AgentName, new AgentStep
+            {
+                Type = AgentStepType.Response,
+                Content = $"{service.AgentName} 执行失败，已跳过该模块并继续后续分析。原因：{BuildExceptionSummary(ex)}"
+            }, triggerTurnIndex, observer);
+            return new SubAgentRunResult(index, service.AgentName, failureSteps);
+        }
     }
 
     private async Task FinalizeAssistantResponseAsync(
@@ -289,7 +362,7 @@ public class SessionAnalysisOrchestrator : ISessionAnalysisOrchestrator
                         ? BuildFinalResponse(context.State, partial, executedTasks, true, userIntent)
                         : null
                 };
-                patch.ApplyTo(context.State);
+                context.ApplyPatch(patch);
                 assistantMessage.Content = context.State.FinalResponse;
                 await NotifyStatePatchedAsync(context, patch, observer);
                 await NotifyMessageUpdatedAsync(context, assistantMessage, observer);
@@ -307,7 +380,7 @@ public class SessionAnalysisOrchestrator : ISessionAnalysisOrchestrator
                 ? finalResponse
                 : null
         };
-        finalPatch.ApplyTo(context.State);
+        context.ApplyPatch(finalPatch);
         assistantMessage.Content = context.State.FinalResponse;
         context.Memory.AddAssistantMessage(context.State.FinalResponse);
         await NotifyStatePatchedAsync(context, finalPatch, observer);
@@ -324,6 +397,7 @@ public class SessionAnalysisOrchestrator : ISessionAnalysisOrchestrator
     private static string BuildRiskAdvicePrompt(AnalysisSessionState state, string userIntent, List<SubAgentTask> executedTasks, bool isInitialAnalysis)
     {
         var sb = new StringBuilder();
+        AppendMarkdownOutputRules(sb);
         sb.AppendLine($"标的: {state.Symbol} {state.StockName}");
         sb.AppendLine($"用户本轮需求: {userIntent}");
         if (isInitialAnalysis)
@@ -358,6 +432,18 @@ public class SessionAnalysisOrchestrator : ISessionAnalysisOrchestrator
         }
         sb.AppendLine("请只围绕本轮更新主题输出简短结论和对应风险，不要扩展到未被要求的其他板块。");
         return sb.ToString();
+    }
+
+    private static void AppendMarkdownOutputRules(StringBuilder sb)
+    {
+        sb.AppendLine("Markdown 输出规则:");
+        sb.AppendLine("- 只使用规范 Markdown，不要输出单独的 #、###、####。");
+        sb.AppendLine("- 标题使用 ## 标题 或 ### 标题，# 后必须有空格，标题和正文必须分成两行。");
+        sb.AppendLine("- 有序列表使用 1. 内容，无序列表使用 - 内容，不要写成 1.内容 或 标题- 正文。");
+        sb.AppendLine("- 段落、标题、列表、图片之间留空行。");
+        sb.AppendLine("- 如果引用图片，必须单独一行写成 ![说明](本地绝对路径)，不要写 !说明。");
+        sb.AppendLine("- 不要输出思考过程、推理过程、内部计划或 chain-of-thought，只输出面向用户的最终分析。");
+        sb.AppendLine();
     }
 
     private static string BuildFinalResponse(AnalysisSessionState state, string advice, List<SubAgentTask> executedTasks, bool isInitialAnalysis, string userIntent)
@@ -484,8 +570,8 @@ public class SessionAnalysisOrchestrator : ISessionAnalysisOrchestrator
                 Agent = "B",
                 Instruction = userMessage,
                 UseChanTheory = true,
-                DailyDays = state.DailyDays,
-                MonthlyMonths = state.MonthlyMonths
+                DailyDays = ExtractDailyDays(userMessage) ?? state.DailyDays,
+                MonthlyMonths = ExtractMonthlyMonths(userMessage) ?? state.MonthlyMonths
             });
         }
         else if (userMessage.Contains("K") || userMessage.Contains("k") || userMessage.Contains("走势"))
@@ -494,8 +580,8 @@ public class SessionAnalysisOrchestrator : ISessionAnalysisOrchestrator
             {
                 Agent = "B",
                 Instruction = userMessage,
-                DailyDays = userMessage.Contains("一年") ? 250 : state.DailyDays,
-                MonthlyMonths = state.MonthlyMonths
+                DailyDays = ExtractDailyDays(userMessage) ?? (userMessage.Contains("一年") ? 250 : state.DailyDays),
+                MonthlyMonths = ExtractMonthlyMonths(userMessage) ?? state.MonthlyMonths
             });
         }
         else if (userMessage.Contains("新闻") || userMessage.Contains("积极") || userMessage.Contains("消极"))
@@ -582,8 +668,8 @@ public class SessionAnalysisOrchestrator : ISessionAnalysisOrchestrator
         var lower = userMessage.ToLowerInvariant();
         if (agent.Equals("B", StringComparison.OrdinalIgnoreCase))
         {
-            merged.DailyDays ??= lower.Contains("一年") && lower.Contains("日k") ? 250 : state.DailyDays;
-            merged.MonthlyMonths ??= state.MonthlyMonths;
+            merged.DailyDays = ExtractDailyDays(userMessage) ?? merged.DailyDays ?? (lower.Contains("一年") && lower.Contains("日k") ? 250 : state.DailyDays);
+            merged.MonthlyMonths = ExtractMonthlyMonths(userMessage) ?? merged.MonthlyMonths ?? state.MonthlyMonths;
             merged.UseChanTheory |= ContainsAny(lower, "缠", "中枢", "背驰", "分型", "买卖点");
         }
         else if (agent.Equals("C", StringComparison.OrdinalIgnoreCase))
@@ -607,6 +693,62 @@ public class SessionAnalysisOrchestrator : ISessionAnalysisOrchestrator
     private static bool ContainsAny(string source, params string[] keywords)
     {
         return keywords.Any(source.Contains);
+    }
+
+    private static int? ExtractDailyDays(string message)
+    {
+        var lower = message.ToLowerInvariant();
+        var explicitDays = Regex.Match(lower, @"(?<!\d)(\d{1,4})\s*(?:个)?(?:交易日|天|日)(?!\d)");
+        if (explicitDays.Success && int.TryParse(explicitDays.Groups[1].Value, out var days))
+            return Math.Clamp(days, 5, 1200);
+
+        var explicitYears = Regex.Match(lower, @"(?<!\d)(\d{1,2})\s*年");
+        if ((lower.Contains("日k") || lower.Contains("日线")) &&
+            explicitYears.Success &&
+            int.TryParse(explicitYears.Groups[1].Value, out var years))
+            return Math.Clamp(years * 250, 5, 1200);
+
+        if ((lower.Contains("日k") || lower.Contains("日线") || lower.Contains("走势")) && lower.Contains("半年"))
+            return 125;
+
+        if ((lower.Contains("日k") || lower.Contains("日线")) && lower.Contains("一年"))
+            return 250;
+
+        return null;
+    }
+
+    private static int? ExtractMonthlyMonths(string message)
+    {
+        var lower = message.ToLowerInvariant();
+        var explicitMonths = Regex.Match(lower, @"(?<!\d)(\d{1,3})\s*(?:个)?月");
+        if (explicitMonths.Success && int.TryParse(explicitMonths.Groups[1].Value, out var months))
+            return Math.Clamp(months, 1, 180);
+
+        var explicitYears = Regex.Match(lower, @"(?<!\d)(\d{1,2})\s*年");
+        if ((lower.Contains("月k") || lower.Contains("月线")) &&
+            explicitYears.Success &&
+            int.TryParse(explicitYears.Groups[1].Value, out var years))
+            return Math.Clamp(years * 12, 1, 180);
+
+        if ((lower.Contains("月k") || lower.Contains("月线") || lower.Contains("走势")) && lower.Contains("半年"))
+            return 6;
+
+        if ((lower.Contains("月k") || lower.Contains("月线")) && lower.Contains("一年"))
+            return 12;
+
+        return null;
+    }
+
+    private static string BuildExceptionSummary(Exception ex)
+    {
+        var messages = new List<string>();
+        for (var current = ex; current is not null; current = current.InnerException)
+        {
+            if (!string.IsNullOrWhiteSpace(current.Message))
+                messages.Add(current.Message);
+        }
+
+        return messages.Count == 0 ? ex.GetType().Name : string.Join(" -> ", messages.Distinct());
     }
 
     private static string BuildStateSummary(AnalysisSessionState state)
@@ -736,4 +878,6 @@ public class SessionAnalysisOrchestrator : ISessionAnalysisOrchestrator
             Timestamp = step.Timestamp
         };
     }
+
+    private sealed record SubAgentRunResult(int Index, string AgentName, List<AgentStep> Steps);
 }

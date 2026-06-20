@@ -51,7 +51,7 @@ public class AgentDService : ISubAgentService
             FinancialYears = financialYears,
             FinancialHistory = history.OrderByDescending(x => x.ReportDate).ToList()
         };
-        dataPatch.ApplyTo(context.State);
+        context.ApplyPatch(dataPatch);
         await NotifyStatePatchedAsync(context, dataPatch, observer);
 
         await AppendStepAsync(context, result, new AgentStep
@@ -69,7 +69,7 @@ public class AgentDService : ISubAgentService
                 {
                     AgentDResult = partial
                 };
-                patch.ApplyTo(context.State);
+                context.ApplyPatch(patch);
                 await NotifyStatePatchedAsync(context, patch, observer);
             },
             0.2,
@@ -108,6 +108,7 @@ public class AgentDService : ISubAgentService
     {
         var sb = new StringBuilder();
         sb.AppendLine("你是 Agent D，负责财务分析。请围绕盈利能力、增长、负债、趋势一致性进行细致分析。");
+        sb.AppendLine("不要自称 Agent D，不要问候，不要输出思考过程或内部推理，直接输出用户可读的 Markdown 分析。");
         if (isInitialAnalysis)
             sb.AppendLine("这是首次总览分析，请适度结构化，便于用户建立全局财务认知。");
         else

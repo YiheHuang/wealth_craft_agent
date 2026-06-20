@@ -20,10 +20,16 @@ public partial class App : Application
 
         var options = new AgentOptions
         {
-            ApiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY") ?? "",
-            Endpoint = Environment.GetEnvironmentVariable("OPENAI_ENDPOINT") ?? "https://yunwu.ai/v1",
+            ApiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY")
+                ?? Environment.GetEnvironmentVariable("LLM_API_KEY")
+                ?? "",
+            Endpoint = Environment.GetEnvironmentVariable("OPENAI_ENDPOINT")
+                ?? Environment.GetEnvironmentVariable("LLM_BASE_URL")
+                ?? "https://yunwu.ai/v1",
             ModelId = Environment.GetEnvironmentVariable("OPENAI_MODEL") ?? "gpt-4o-mini",
-            ProxyUrl = Environment.GetEnvironmentVariable("HTTP_PROXY"),
+            ProxyUrl = Environment.GetEnvironmentVariable("HTTP_PROXY")
+                ?? Environment.GetEnvironmentVariable("HTTPS_PROXY")
+                ?? Environment.GetEnvironmentVariable("ALL_PROXY"),
             DataSource = Environment.GetEnvironmentVariable("INVEST_DATA_SOURCE") ?? "composite",
             AlphaVantageApiKey = Environment.GetEnvironmentVariable("ALPHAVANTAGE_API_KEY") ?? "",
             FinnhubApiKey = Environment.GetEnvironmentVariable("FINNHUB_API_KEY") ?? ""

@@ -42,6 +42,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<CompositeStockDataService>();
         services.AddSingleton<ISystemPromptProvider, SystemPromptProvider>();
         services.AddSingleton<ILocalKnowledgeService, LocalKnowledgeService>();
+        services.AddSingleton<IHistoricalPatternService, HistoricalPatternService>();
         services.AddSingleton<IStockDataService>(sp => options.DataSource switch
         {
             "yahoo" => sp.GetRequiredService<YahooFinanceStockService>(),
@@ -71,11 +72,15 @@ public static class ServiceCollectionExtensions
         {
             var builder = Kernel.CreateBuilder();
 
-            var httpClient = new HttpClient(new SocketsHttpHandler
+            var llmHandler = new SocketsHttpHandler
             {
                 ConnectTimeout = TimeSpan.FromSeconds(30),
                 ResponseDrainTimeout = TimeSpan.FromSeconds(120)
-            });
+            };
+            if (!string.IsNullOrWhiteSpace(options.ProxyUrl))
+                llmHandler.Proxy = new System.Net.WebProxy(options.ProxyUrl);
+
+            var httpClient = new HttpClient(llmHandler);
 
 #pragma warning disable SKEXP0010
             builder.AddOpenAIChatCompletion(

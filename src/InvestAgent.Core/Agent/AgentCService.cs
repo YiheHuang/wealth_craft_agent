@@ -76,7 +76,7 @@ public class AgentCService : ISubAgentService
             CompanyNews = company,
             IndustryNews = industry
         };
-        dataPatch.ApplyTo(context.State);
+        context.ApplyPatch(dataPatch);
         await NotifyStatePatchedAsync(context, dataPatch, observer);
 
         await AppendStepAsync(context, result, new AgentStep
@@ -90,7 +90,7 @@ public class AgentCService : ISubAgentService
         {
             AgentCResult = progressText
         };
-        progressPatch.ApplyTo(context.State);
+        context.ApplyPatch(progressPatch);
         await NotifyStatePatchedAsync(context, progressPatch, observer);
 
         string rawNarrative;
@@ -106,7 +106,7 @@ public class AgentCService : ISubAgentService
                     {
                         AgentCResult = progressText
                     };
-                    patch.ApplyTo(context.State);
+                    context.ApplyPatch(patch);
                     await NotifyStatePatchedAsync(context, patch, observer);
                 },
                 0.2,
@@ -126,7 +126,7 @@ public class AgentCService : ISubAgentService
                     {
                         AgentCResult = partial
                     };
-                    patch.ApplyTo(context.State);
+                    context.ApplyPatch(patch);
                     await NotifyStatePatchedAsync(context, patch, observer);
                 },
                 0.2,
@@ -349,7 +349,11 @@ public class AgentCService : ISubAgentService
 
     private static string NormalizeFallbackMarkdown(string rawNarrative, string symbol, List<NewsItem> company, List<NewsItem> industry, int newsMonths, string sentimentFilter)
     {
-        var normalized = rawNarrative.Replace("\r\n", "\n");
+        var normalized = StripReasoningArtifacts(rawNarrative);
+        if (LooksLikeRawJson(normalized))
+            return RenderSourceBackedNewsMarkdown(symbol, company, industry, newsMonths, sentimentFilter);
+
+        normalized = normalized.Replace("\r\n", "\n");
         normalized = Regex.Replace(normalized, @"(?<!\n)(#{2,6})", "\n$1");
         normalized = Regex.Replace(normalized, @"(?m)^(#{1,6})(\S)", "$1 $2");
         normalized = Regex.Replace(normalized, @"[•·]\s*", "- ");
@@ -380,9 +384,129 @@ public class AgentCService : ISubAgentService
         return normalized;
     }
 
+    private static string RenderSourceBackedNewsMarkdown(string symbol, List<NewsItem> company, List<NewsItem> industry, int newsMonths, string sentimentFilter)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine($"## {symbol} 新闻分析");
+        sb.AppendLine();
+        sb.AppendLine($"分析窗口：最近 {newsMonths} 个月");
+        sb.AppendLine($"情绪过滤：{ToSentimentLabel(sentimentFilter)}");
+
+        sb.AppendLine();
+        sb.AppendLine("### 公司面");
+        AppendSourceNewsSection(sb, company, "暂无可提炼的公司重点新闻。");
+
+        sb.AppendLine();
+        sb.AppendLine("### 行业面");
+        AppendSourceNewsSection(sb, industry, "暂无可提炼的行业重点新闻。");
+
+        sb.AppendLine();
+        sb.AppendLine("### 积极因素");
+        AppendSourceFactors(sb, company.Concat(industry), IsPositive, "近期未识别出足够明确的积极因素。");
+
+        sb.AppendLine();
+        sb.AppendLine("### 消极因素");
+        AppendSourceFactors(sb, company.Concat(industry), IsNegative, "近期未识别出足够明确的消极因素。");
+
+        sb.AppendLine();
+        sb.AppendLine("### 小结");
+        if (company.Count == 0 && industry.Count == 0)
+            sb.AppendLine("当前没有足够的新闻样本，建议稍后重试或结合公告面继续跟踪。");
+        else
+            sb.AppendLine("模型返回了未格式化的结构化中间结果，系统已改用已抓取新闻源生成可读摘要。后续建议继续结合公告兑现、行业景气和价格走势验证。");
+
+        return sb.ToString().Trim();
+    }
+
+    private static void AppendSourceNewsSection(StringBuilder sb, IEnumerable<NewsItem> items, string emptyText)
+    {
+        var valid = items
+            .Where(x => !string.IsNullOrWhiteSpace(x.Title) || !string.IsNullOrWhiteSpace(x.Summary))
+            .OrderByDescending(x => x.PublishTime)
+            .Take(6)
+            .ToList();
+
+        if (valid.Count == 0)
+        {
+            sb.AppendLine(emptyText);
+            return;
+        }
+
+        foreach (var item in valid)
+        {
+            var title = SafeText(item.Title, "未命名事件");
+            var date = item.PublishTime == default ? "时间未标注" : item.PublishTime.ToString("yyyy-MM-dd");
+            var source = SafeText(item.Source, "来源未标注");
+            var sentiment = NormalizeSentiment(item.Sentiment);
+            var summary = SafeText(string.IsNullOrWhiteSpace(item.Summary) ? item.Content : item.Summary, "暂无摘要。");
+            sb.AppendLine($"- **{title}**（{date}，{source}，情绪：{sentiment}）：{Truncate(summary, 160)}");
+        }
+    }
+
+    private static void AppendSourceFactors(StringBuilder sb, IEnumerable<NewsItem> items, Func<NewsItem, bool> classifier, string emptyText)
+    {
+        var factors = items
+            .Where(classifier)
+            .OrderByDescending(x => x.PublishTime)
+            .Select(x =>
+            {
+                var title = SafeText(x.Title, "未命名事件");
+                var summary = SafeText(string.IsNullOrWhiteSpace(x.Summary) ? x.Content : x.Summary, "暂无摘要。");
+                return $"{title}：{Truncate(summary, 120)}";
+            })
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(5)
+            .ToList();
+
+        if (factors.Count == 0)
+        {
+            sb.AppendLine($"- {emptyText}");
+            return;
+        }
+
+        foreach (var factor in factors)
+            sb.AppendLine($"- {factor}");
+    }
+
+    private static bool LooksLikeRawJson(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return false;
+
+        var trimmed = text.TrimStart();
+        return trimmed.StartsWith("{") ||
+               trimmed.StartsWith("[") ||
+               Regex.IsMatch(text, @"""(?:companyView|industryView|positiveFactors|negativeFactors|customFocusResponse|summary)""\s*:");
+    }
+
+    private static string StripReasoningArtifacts(string raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+            return "";
+
+        var text = raw.Replace("\r\n", "\n").Replace('\r', '\n');
+        const string tags = "think|thinking|analysis|reasoning|thought|thing";
+        text = Regex.Replace(text, $@"(?is)<\s*(?:{tags})\b[^>]*>.*?<\s*/\s*(?:{tags})\s*>", "");
+        text = Regex.Replace(text, $@"(?is)<\s*(?:{tags})\b[^>]*>.*$", "");
+
+        var closes = Regex.Matches(text, $@"(?is)<\s*/\s*(?:{tags})\s*>");
+        if (closes.Count > 0)
+        {
+            var last = closes[closes.Count - 1];
+            var prefix = text[..last.Index];
+            var suffix = text[(last.Index + last.Length)..];
+            if (Regex.IsMatch(prefix, @"(?im)(用户要求|分析步骤|组织语言|当前数据|思考过程|推理过程|Chain\s*of\s*Thought|Reasoning)"))
+                text = suffix;
+            else
+                text = Regex.Replace(text, $@"(?is)<\s*/\s*(?:{tags})\s*>", "");
+        }
+
+        return text.Trim();
+    }
+
     private static string NormalizeFollowUpNarrative(string rawNarrative, string symbol, int newsMonths, string sentimentFilter)
     {
-        var normalized = rawNarrative.Replace("\r\n", "\n");
+        var normalized = StripReasoningArtifacts(rawNarrative).Replace("\r\n", "\n");
         normalized = Regex.Replace(normalized, @"(?<!\n)(#{2,6})", "\n$1");
         normalized = Regex.Replace(normalized, @"(?m)^(#{1,6})(\S)", "$1 $2");
         normalized = Regex.Replace(normalized, @"[•·]\s*", "- ");

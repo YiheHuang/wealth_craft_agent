@@ -26,7 +26,39 @@ public class CompositeStockDataService : IStockDataService
     public Task<StockQuote?> GetCurrentPriceAsync(string symbol) => _yahoo.GetCurrentPriceAsync(symbol);
     public Task<List<StockKLine>> GetHistoricalPricesAsync(string symbol, int days = 30) => _yahoo.GetHistoricalPricesAsync(symbol, days);
     public Task<List<StockKLine>> GetMonthlyKLineAsync(string symbol, int months = 36) => _yahoo.GetMonthlyKLineAsync(symbol, months);
-    public Task<List<StockQuote>> SearchStockAsync(string keyword) => _yahoo.SearchStockAsync(keyword);
+    public async Task<List<StockQuote>> SearchStockAsync(string keyword)
+    {
+        var normalized = keyword?.Trim() ?? "";
+        if (IsAShare(normalized) || ContainsChinese(normalized))
+        {
+            try
+            {
+                var em = await _eastMoney.SearchStockAsync(normalized);
+                if (em.Count > 0)
+                    return em;
+            }
+            catch { }
+        }
+
+        try
+        {
+            var y = await _yahoo.SearchStockAsync(normalized);
+            if (y.Count > 0)
+                return y;
+        }
+        catch { }
+
+        if (!string.IsNullOrWhiteSpace(normalized))
+        {
+            try
+            {
+                return await _eastMoney.SearchStockAsync(normalized);
+            }
+            catch { }
+        }
+
+        return new List<StockQuote>();
+    }
 
     public async Task<KeyMetrics?> GetKeyMetricsAsync(string symbol)
     {
@@ -182,6 +214,7 @@ public class CompositeStockDataService : IStockDataService
     }
 
     private static bool IsAShare(string symbol) => symbol.All(char.IsDigit) && symbol.Length == 6;
+    private static bool ContainsChinese(string value) => value.Any(c => c >= '\u4e00' && c <= '\u9fff');
     private static bool HasUsefulNews(List<NewsItem>? list)
         => list is { Count: > 0 } && list.Any(x => x.IsDataAvailable && !string.IsNullOrWhiteSpace(x.Title));
 

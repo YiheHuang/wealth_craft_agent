@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Text.Json;
 using InvestAgent.Core.Services;
 using Microsoft.SemanticKernel;
 
@@ -27,4 +28,16 @@ public class LocalKnowledgePlugin
     [KernelFunction("get_chan_analysis_template")]
     [Description("获取缠论标准分析模板。")]
     public string GetChanAnalysisTemplate() => _localKnowledgeService.GetChanAnalysisTemplate();
+
+    [KernelFunction("search_chan_images")]
+    [Description("Search local Chan theory image examples. Returns metadata including localPath, pageUrl, imageUrl, tags, and context.")]
+    public string SearchChanImages(
+        [Description("Query keywords, for example: zhongshu, fractal, bi, segment, divergence, buy point, MACD, image case, or Chinese equivalents.")]
+        string query,
+        [Description("Maximum number of images to return.")]
+        int topN = 6)
+    {
+        var results = _localKnowledgeService.SearchChanImages(query, topN);
+        return JsonSerializer.Serialize(results, new JsonSerializerOptions { WriteIndented = true });
+    }
 }
