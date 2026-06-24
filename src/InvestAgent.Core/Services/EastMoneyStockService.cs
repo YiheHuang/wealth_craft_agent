@@ -4,6 +4,11 @@ using Microsoft.Extensions.Logging;
 
 namespace InvestAgent.Core.Services;
 
+/// <summary>
+/// 东方财富股票数据服务——A 股首选数据源。
+/// 通过东方财富公开 API 提供实时行情、K线、财务指标、新闻公告、行业分类和资金流向。
+/// 所有 API 调用包含限速（3并发）、自动重试（3次）和 HTTP 缓存。
+/// </summary>
 public class EastMoneyStockService : IStockDataService
 {
     private readonly HttpClient _http;

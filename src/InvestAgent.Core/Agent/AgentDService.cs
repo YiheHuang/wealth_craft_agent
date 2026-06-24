@@ -4,6 +4,10 @@ using InvestAgent.Core.Services;
 
 namespace InvestAgent.Core.Agent;
 
+/// <summary>
+/// Agent D —— 财务分析服务。
+/// 负责财务指标历史序列的抓取、趋势分析和 LLM 驱动的财务评估报告生成。
+/// </summary>
 public class AgentDService : ISubAgentService
 {
     private readonly IStockDataService _stockDataService;

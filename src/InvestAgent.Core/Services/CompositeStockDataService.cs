@@ -1,7 +1,13 @@
-﻿using InvestAgent.Core.Models;
+using InvestAgent.Core.Models;
 
 namespace InvestAgent.Core.Services;
 
+/// <summary>
+/// 组合式股票数据服务（默认数据源）。
+/// 实现 A 股优先策略：A 股使用东方财富 + Yahoo 互补，美股使用 Yahoo + AlphaVantage。
+/// 对于 A 股的财务、新闻、搜索等操作优先走东方财富，Yahoo 作为补充。
+/// 实现 <see cref="IStockDataService"/> 接口，通过 DI 容器根据配置切换。
+/// </summary>
 public class CompositeStockDataService : IStockDataService
 {
     private readonly YahooFinanceStockService _yahoo;
@@ -23,42 +29,48 @@ public class CompositeStockDataService : IStockDataService
 
     public string SourceName => "AShareFirst(Yahoo+EastMoney+AlphaVantage)";
 
+    // ── 行情和 K 线 —— 统一走 Yahoo ──────────────────────────
+
     public Task<StockQuote?> GetCurrentPriceAsync(string symbol) => _yahoo.GetCurrentPriceAsync(symbol);
     public Task<List<StockKLine>> GetHistoricalPricesAsync(string symbol, int days = 30) => _yahoo.GetHistoricalPricesAsync(symbol, days);
     public Task<List<StockKLine>> GetMonthlyKLineAsync(string symbol, int months = 36) => _yahoo.GetMonthlyKLineAsync(symbol, months);
+
+    // ── 搜索 —— A 股优先东方财富 ────────────────────────────
+
     public async Task<List<StockQuote>> SearchStockAsync(string keyword)
     {
         var normalized = keyword?.Trim() ?? "";
+
+        // A 股或中文关键词优先走东方财富
         if (IsAShare(normalized) || ContainsChinese(normalized))
         {
             try
             {
                 var em = await _eastMoney.SearchStockAsync(normalized);
-                if (em.Count > 0)
-                    return em;
+                if (em.Count > 0) return em;
             }
             catch { }
         }
 
+        // 回退到 Yahoo
         try
         {
             var y = await _yahoo.SearchStockAsync(normalized);
-            if (y.Count > 0)
-                return y;
+            if (y.Count > 0) return y;
         }
         catch { }
 
+        // 最终尝试东方财富
         if (!string.IsNullOrWhiteSpace(normalized))
         {
-            try
-            {
-                return await _eastMoney.SearchStockAsync(normalized);
-            }
+            try { return await _eastMoney.SearchStockAsync(normalized); }
             catch { }
         }
 
         return new List<StockQuote>();
     }
+
+    // ── 财务指标 —— A 股优先东方财富，Yahoo 补充 ──────────────
 
     public async Task<KeyMetrics?> GetKeyMetricsAsync(string symbol)
     {
@@ -71,9 +83,9 @@ public class CompositeStockDataService : IStockDataService
         KeyMetrics? y = null;
         try { y = await _yahoo.GetKeyMetricsAsync(symbol); } catch { }
 
+        // 以东方财富为主体，Yahoo 补充缺失字段
         if (em is null) return y;
         if (y is null) return em;
-
         if (em.PE == 0) em.PE = y.PE;
         if (em.PB == 0) em.PB = y.PB;
         if (em.MarketCap == 0) em.MarketCap = y.MarketCap;
@@ -92,15 +104,11 @@ public class CompositeStockDataService : IStockDataService
             }
             catch { }
         }
-        try
-        {
-            return await _yahoo.GetKeyMetricsHistoryAsync(symbol, maxReports);
-        }
-        catch
-        {
-            return new List<KeyMetrics>();
-        }
+        try { return await _yahoo.GetKeyMetricsHistoryAsync(symbol, maxReports); }
+        catch { return new List<KeyMetrics>(); }
     }
+
+    // ── 主营业务 —— A 股优先东方财富 ─────────────────────────
 
     public async Task<string> GetMainBusinessAsync(string symbol)
     {
@@ -109,9 +117,10 @@ public class CompositeStockDataService : IStockDataService
             var em = await SafeMainBusinessAsync(() => _eastMoney.GetMainBusinessAsync(symbol));
             if (!string.IsNullOrWhiteSpace(em)) return em;
         }
-        var y = await SafeMainBusinessAsync(() => _yahoo.GetMainBusinessAsync(symbol));
-        return y;
+        return await SafeMainBusinessAsync(() => _yahoo.GetMainBusinessAsync(symbol));
     }
+
+    // ── 新闻 —— A 股走东方财富 + 行业新闻聚合，美股走 AlphaVantage ──
 
     public async Task<List<NewsItem>> GetLatestNewsAsync(string symbol, int count = 5)
     {
@@ -120,6 +129,7 @@ public class CompositeStockDataService : IStockDataService
 
         if (isAShare)
         {
+            // A 股：先拉公司公告
             var companyNews = await SafeNewsAsync(() => _eastMoney.GetLatestNewsAsync(symbol, count));
             foreach (var n in companyNews)
             {
@@ -128,9 +138,9 @@ public class CompositeStockDataService : IStockDataService
             }
             merged.AddRange(companyNews);
 
+            // 行业新闻：通过同行业股票聚合
             var industry = await SafeIndustryNameAsync(symbol);
             var peers = await SafeIndustryPeersAsync(symbol);
-            // 行业新闻目标量：不少于公司新闻 count，并预留一定冗余
             var targetIndustryNews = Math.Max(count, 20);
             var peerTake = Math.Min(peers.Count, 12);
             var perPeerCount = Math.Max(2, (int)Math.Ceiling((double)targetIndustryNews / Math.Max(1, peerTake)));
@@ -148,7 +158,7 @@ public class CompositeStockDataService : IStockDataService
             }
         }
 
-        // A股新闻不使用 Alpha Vantage，避免境外源噪声
+        // A 股新闻不使用 Alpha Vantage（避免境外源噪声）
         if (!isAShare)
         {
             var avNews = await SafeNewsAsync(() => _news.GetLatestNewsAsync(symbol, Math.Max(8, count)));
@@ -160,6 +170,7 @@ public class CompositeStockDataService : IStockDataService
             merged.AddRange(avNews);
         }
 
+        // 过滤无效条目并去重
         var filtered = merged
             .Where(x => !string.IsNullOrWhiteSpace(x.Title))
             .Where(x => !x.Title.Contains("解析失败"))
@@ -174,34 +185,33 @@ public class CompositeStockDataService : IStockDataService
             .OrderByDescending(x => x.PublishTime)
             .ToList();
 
-        // 尽量保留全量，避免行业新闻挤占公司新闻
+        // 上限保护（避免行业新闻过多挤占公司新闻）
         var cap = Math.Max(60, count * 6);
-        if (dedup.Count > cap)
-            dedup = dedup.Take(cap).ToList();
+        if (dedup.Count > cap) dedup = dedup.Take(cap).ToList();
 
         if (HasUsefulNews(dedup)) return dedup;
 
-        return
-        [
-            new NewsItem
-            {
-                Title = "新闻数据暂不可用",
-                Summary = $"标的 {symbol} 暂未获取到有效新闻/公告，建议结合K线与财务指标分析。",
-                Content = $"标的 {symbol} 暂未获取到有效新闻/公告，建议结合K线与财务指标分析。",
-                Source = "CompositeFallback",
-                PublishTime = DateTime.Now,
-                Sentiment = "neutral",
-                IsDataAvailable = false,
-                DataNote = "已尝试公司新闻与行业新闻。"
-            }
-        ];
+        // 完全无有效新闻时的降级占位
+        return [new NewsItem
+        {
+            Title = "新闻数据暂不可用",
+            Summary = $"标的 {symbol} 暂未获取到有效新闻/公告，建议结合K线与财务指标分析。",
+            Content = $"标的 {symbol} 暂未获取到有效新闻/公告，建议结合K线与财务指标分析。",
+            Source = "CompositeFallback",
+            PublishTime = DateTime.Now,
+            Sentiment = "neutral",
+            IsDataAvailable = false,
+            DataNote = "已尝试公司新闻与行业新闻。"
+        }];
     }
 
+    /// <summary>资金流已按产品要求移除，返回空列表</summary>
     public Task<List<CapitalFlowItem>> GetCapitalFlowAsync(string symbol, int days = 20)
     {
-        // 已按产品要求删除资金流入流出功能。
         return Task.FromResult(new List<CapitalFlowItem>());
     }
+
+    // ── 内部辅助 ───────────────────────────────────────────
 
     private async Task<string> SafeIndustryNameAsync(string symbol)
     {
@@ -213,8 +223,13 @@ public class CompositeStockDataService : IStockDataService
         try { return await _eastMoney.GetIndustryPeerSymbolsAsync(symbol, 12); } catch { return new List<string>(); }
     }
 
+    /// <summary>判断是否为 A 股代码（6 位纯数字）</summary>
     private static bool IsAShare(string symbol) => symbol.All(char.IsDigit) && symbol.Length == 6;
-    private static bool ContainsChinese(string value) => value.Any(c => c >= '\u4e00' && c <= '\u9fff');
+
+    /// <summary>判断字符串是否包含中文字符</summary>
+    private static bool ContainsChinese(string value) => value.Any(c => c >= '一' && c <= '鿿');
+
+    /// <summary>检查新闻列表中是否有可用条目</summary>
     private static bool HasUsefulNews(List<NewsItem>? list)
         => list is { Count: > 0 } && list.Any(x => x.IsDataAvailable && !string.IsNullOrWhiteSpace(x.Title));
 

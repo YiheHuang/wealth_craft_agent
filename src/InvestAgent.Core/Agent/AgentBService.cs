@@ -4,6 +4,11 @@ using InvestAgent.Core.Services;
 
 namespace InvestAgent.Core.Agent;
 
+/// <summary>
+/// Agent B —— K线/技术结构分析服务。
+/// 负责日K/月K数据抓取与缓存、缠论知识库检索、历史相似走势匹配，
+/// 以及驱动 LLM 生成技术分析叙述（支持缠论多模态图片输入）。
+/// </summary>
 public class AgentBService : ISubAgentService
 {
     private const int MaxChanImagesPerPrompt = 4;

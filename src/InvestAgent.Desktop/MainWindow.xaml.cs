@@ -13,6 +13,11 @@ using System.Windows.Threading;
 
 namespace InvestAgent.Desktop;
 
+/// <summary>
+/// 桌面应用主窗口的代码后置。
+/// 处理 K 线图拖拽/缩放交互、聊天自动滚动、历史会话菜单和新闻链接导航。
+/// 所有业务逻辑由 MainViewModel 承载。
+/// </summary>
 public partial class MainWindow : Window
 {
     private bool _isDraggingChart;

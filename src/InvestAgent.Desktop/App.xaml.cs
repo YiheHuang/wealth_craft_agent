@@ -9,15 +9,26 @@ using System.IO;
 
 namespace InvestAgent.Desktop;
 
+/// <summary>
+/// WPF 桌面应用入口点。
+/// 负责应用程序生命周期管理——启动时加载 .env 环境变量、
+/// 构建 DI 容器（IHost）、初始化 MainWindow 并显示。
+/// 退出时优雅停止 Host。
+/// </summary>
 public partial class App : Application
 {
     private IHost? _host;
 
+    /// <summary>
+    /// 应用启动回调。
+    /// 按顺序执行：加载 .env → 构建配置 → 注册 DI → 显示主窗口。
+    /// </summary>
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
         LoadDotEnv();
 
+        // 从环境变量构建配置（比硬编码更灵活）
         var options = new AgentOptions
         {
             ApiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY")
@@ -35,15 +46,16 @@ public partial class App : Application
             FinnhubApiKey = Environment.GetEnvironmentVariable("FINNHUB_API_KEY") ?? ""
         };
 
+        // 使用 .NET Generic Host 作为 DI 容器
         _host = Host.CreateDefaultBuilder()
             .ConfigureServices(services =>
             {
                 services.AddLogging(b => b.AddConsole().SetMinimumLevel(LogLevel.Information));
                 services.AddSingleton(options);
-                services.AddInvestAgent(options);
-                services.AddSingleton<IAnalysisHistoryRepository, AnalysisHistoryRepository>();
-                services.AddSingleton<ViewModels.MainViewModel>();
-                services.AddSingleton<MainWindow>();
+                services.AddInvestAgent(options);                              // 核心服务
+                services.AddSingleton<IAnalysisHistoryRepository, AnalysisHistoryRepository>(); // SQLite 持久化
+                services.AddSingleton<ViewModels.MainViewModel>();            // 主视图模型
+                services.AddSingleton<MainWindow>();                          // 主窗口
             })
             .Build();
 
@@ -51,6 +63,10 @@ public partial class App : Application
         mainWindow.Show();
     }
 
+    /// <summary>
+    /// 加载 .env 文件到环境变量。
+    /// 按优先级搜索：当前目录 → 应用程序目录 → 向上遍历父目录。
+    /// </summary>
     private static void LoadDotEnv()
     {
         var envPath = FindEnvFile();
@@ -71,6 +87,7 @@ public partial class App : Application
         }
     }
 
+    /// <summary>搜索 .env 文件——从多级目录向上查找</summary>
     private static string? FindEnvFile()
     {
         var candidates = new[]
@@ -91,6 +108,7 @@ public partial class App : Application
         return null;
     }
 
+    /// <summary>应用退出时优雅停止 Host（释放资源）</summary>
     protected override async void OnExit(ExitEventArgs e)
     {
         if (_host is not null)

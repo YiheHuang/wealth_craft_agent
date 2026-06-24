@@ -6,6 +6,11 @@ using InvestAgent.Core.Services;
 
 namespace InvestAgent.Core.Agent;
 
+/// <summary>
+/// 会话分析编排器——多 Agent 工作流的总指挥。
+/// 负责初始全量分析的并行调度（Agent B/C/D 并发）和会话内追问的意图解析与任务分发。
+/// Agent A 作为总协调者，驱动 LLM 生成派单计划并合成最终报告。
+/// </summary>
 public class SessionAnalysisOrchestrator : ISessionAnalysisOrchestrator
 {
     private readonly IStockDataService _stockDataService;

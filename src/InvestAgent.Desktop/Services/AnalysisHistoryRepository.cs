@@ -13,6 +13,10 @@ public interface IAnalysisHistoryRepository
     Task DeleteSessionAsync(long sessionId);
 }
 
+/// <summary>
+/// 基于 SQLite 的分析历史持久化实现。
+/// 数据库文件存放于 %LocalAppData%/InvestAgent/analysis_history.db
+/// </summary>
 public class AnalysisHistoryRepository : IAnalysisHistoryRepository
 {
     private readonly string _dbPath;

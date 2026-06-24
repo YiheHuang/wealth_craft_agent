@@ -13,6 +13,10 @@ using System.Windows.Media;
 
 namespace InvestAgent.Desktop.ViewModels;
 
+/// <summary>
+/// 桌面应用的主视图模型（MVVM 核心）。
+/// 负责分析流程控制、K线图交互（缩放/平移/Hover）、状态同步（实现 IAnalysisStreamingObserver）和历史会话管理。
+/// </summary>
 public class MainViewModel : INotifyPropertyChanged, IAnalysisStreamingObserver
 {
     private const double CanvasWidth = 1220;

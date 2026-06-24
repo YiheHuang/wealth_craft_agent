@@ -13,6 +13,11 @@ public interface IHistoricalPatternService
         int topN = 8);
 }
 
+/// <summary>
+/// 历史形态相似度搜索服务的实现。
+/// 从当前K线提取多维特征向量，与案例库进行加权距离比较，
+/// 输出最相似的历史案例及后续走势统计。
+/// </summary>
 public class HistoricalPatternService : IHistoricalPatternService
 {
     private readonly ILogger<HistoricalPatternService> _logger;

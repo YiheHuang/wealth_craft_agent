@@ -12,6 +12,9 @@ using System.Windows.Media.Imaging;
 
 namespace InvestAgent.Desktop.Converters;
 
+/// <summary>
+/// 将 Markdown 文本转换为 WPF FlowDocument 的绑定转换器。
+/// </summary>
 public class MarkdownToFlowDocumentConverter : IValueConverter
 {
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)

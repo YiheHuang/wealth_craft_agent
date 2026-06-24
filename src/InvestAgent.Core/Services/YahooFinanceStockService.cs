@@ -4,12 +4,21 @@ using Microsoft.Extensions.Logging;
 
 namespace InvestAgent.Core.Services;
 
+/// <summary>
+/// Yahoo Finance 股票数据服务。
+/// 通过 Yahoo Finance 的非官方 API（v8 chart / v10 quoteSummary）提供行情和K线数据。
+/// 自动将 A 股代码转换为 Yahoo 格式（.SS 上交所 / .SZ 深交所）。
+/// 注意：Yahoo 不提供 A 股主力资金流向和完整新闻接口。
+/// </summary>
 public class YahooFinanceStockService : IStockDataService
 {
     private readonly HttpClient _http;
     private readonly IHttpCache _cache;
     private readonly ILogger<YahooFinanceStockService> _logger;
+
+    /// <summary>请求限速信号量（最多 2 个并发请求）</summary>
     private static readonly SemaphoreSlim _throttle = new(2, 2);
+
     public string SourceName => "Yahoo Finance";
 
     public YahooFinanceStockService(HttpClient http, IHttpCache cache, ILogger<YahooFinanceStockService> logger)
@@ -19,6 +28,9 @@ public class YahooFinanceStockService : IStockDataService
         _logger = logger;
     }
 
+    // ── 公开接口实现 ───────────────────────────────────────
+
+    /// <inheritdoc />
     public async Task<StockQuote?> GetCurrentPriceAsync(string symbol)
     {
         var yahooSymbol = ToYahooSymbol(symbol);
@@ -43,8 +55,10 @@ public class YahooFinanceStockService : IStockDataService
         };
     }
 
+    /// <inheritdoc />
     public async Task<List<StockKLine>> GetHistoricalPricesAsync(string symbol, int days = 30)
     {
+        // 根据天数选择最优时间范围以减少数据传输
         var range = days <= 5 ? "5d"
             : days <= 30 ? "1mo"
             : days <= 90 ? "3mo"
@@ -58,6 +72,7 @@ public class YahooFinanceStockService : IStockDataService
         return data == null ? new List<StockKLine>() : ToKLineList(symbol, data.Value).TakeLast(Math.Max(1, days)).ToList();
     }
 
+    /// <inheritdoc />
     public async Task<List<StockKLine>> GetMonthlyKLineAsync(string symbol, int months = 36)
     {
         var range = months <= 12 ? "1y"
@@ -70,9 +85,10 @@ public class YahooFinanceStockService : IStockDataService
         return data == null ? new List<StockKLine>() : ToKLineList(symbol, data.Value).TakeLast(Math.Max(1, months)).ToList();
     }
 
+    /// <inheritdoc />
     public async Task<List<StockQuote>> SearchStockAsync(string keyword)
     {
-        // Yahoo Finance 搜索需 crumb/cookie, 使用简化本地匹配
+        // Yahoo Finance 搜索需要 crumb/cookie，此处使用本地常见股票映射
         var commonStocks = new Dictionary<string, string>
         {
             ["茅台"] = "600519.SS", ["五粮液"] = "000858.SZ", ["宁德"] = "300750.SZ",
@@ -92,6 +108,7 @@ public class YahooFinanceStockService : IStockDataService
         return await Task.FromResult(results);
     }
 
+    /// <inheritdoc />
     public async Task<KeyMetrics?> GetKeyMetricsAsync(string symbol)
     {
         var yahooSymbol = ToYahooSymbol(symbol);
@@ -105,7 +122,7 @@ public class YahooFinanceStockService : IStockDataService
             PE = data.Value.PE,
             PB = data.Value.PB,
             ROE = data.Value.ROE,
-            ROA = data.Value.ROE * 0.3m,
+            ROA = data.Value.ROE * 0.3m, // Yahoo 不提供 ROA，基于 ROE 近似估算
             GrossMargin = data.Value.GrossMargin,
             NetMargin = data.Value.NetMargin,
             RevenueGrowth = data.Value.RevenueGrowth,
@@ -116,13 +133,16 @@ public class YahooFinanceStockService : IStockDataService
         };
     }
 
+    /// <inheritdoc />
     public async Task<List<KeyMetrics>> GetKeyMetricsHistoryAsync(string symbol, int maxReports = 4)
     {
+        // Yahoo v10 仅返回最新一期，历史序列需其他数据源补充
         var latest = await GetKeyMetricsAsync(symbol);
         if (latest is null) return new List<KeyMetrics>();
         return new List<KeyMetrics> { latest };
     }
 
+    /// <inheritdoc />
     public async Task<string> GetMainBusinessAsync(string symbol)
     {
         var quote = await GetCurrentPriceAsync(symbol);
@@ -130,8 +150,10 @@ public class YahooFinanceStockService : IStockDataService
         return $"{name} 的主营业务可参考其公开披露信息；当前数据源未提供结构化主营业务字段。";
     }
 
+    /// <inheritdoc />
     public async Task<List<NewsItem>> GetLatestNewsAsync(string symbol, int count = 5)
     {
+        // Yahoo Finance 当前实现未开启新闻接口
         return await Task.FromResult(new List<NewsItem>
         {
             new()
@@ -147,8 +169,10 @@ public class YahooFinanceStockService : IStockDataService
         });
     }
 
+    /// <inheritdoc />
     public async Task<List<CapitalFlowItem>> GetCapitalFlowAsync(string symbol, int days = 20)
     {
+        // Yahoo Finance 不提供 A 股主力资金流向
         return await Task.FromResult(new List<CapitalFlowItem>
         {
             new()
@@ -163,8 +187,12 @@ public class YahooFinanceStockService : IStockDataService
         });
     }
 
-    // ─── 内部 ───────────────────────────────────────────────
+    // ── 内部辅助方法 ───────────────────────────────────────
 
+    /// <summary>
+    /// 将 A 股代码转换为 Yahoo Finance 符号格式。
+    /// 上交所（6 开头）→ .SS，深交所 → .SZ，美股保持原样。
+    /// </summary>
     private static string ToYahooSymbol(string symbol)
     {
         if (symbol.All(char.IsLetter)) return symbol;                 // 美股
@@ -172,6 +200,7 @@ public class YahooFinanceStockService : IStockDataService
         return $"{symbol}.SZ";                                        // 深交所
     }
 
+    /// <summary>带缓存和限速的 HTTP GET 请求</summary>
     private async Task<string> CachedGetAsync(string url, TimeSpan ttl)
     {
         var cached = await _cache.GetAsync(url);
@@ -187,6 +216,7 @@ public class YahooFinanceStockService : IStockDataService
         finally { _throttle.Release(); }
     }
 
+    /// <summary>从 Yahoo v8 chart API 获取 OHLCV 数据</summary>
     private async Task<ChartData?> FetchChartAsync(string symbol, string range, string interval)
     {
         try
@@ -227,6 +257,7 @@ public class YahooFinanceStockService : IStockDataService
         }
     }
 
+    /// <summary>从 Yahoo v10 quoteSummary API 获取财务摘要数据</summary>
     private async Task<SummaryData?> FetchQuoteSummaryAsync(string symbol)
     {
         try
@@ -262,12 +293,13 @@ public class YahooFinanceStockService : IStockDataService
         }
     }
 
+    /// <summary>将 ChartData 结构转换为 K 线列表</summary>
     private static List<StockKLine> ToKLineList(string symbol, ChartData data)
     {
         var list = new List<StockKLine>();
         for (int i = 0; i < data.Timestamps.Length && i < data.Closes.Length; i++)
         {
-            if (data.Closes[i] == 0 && data.Opens[i] == 0) continue;
+            if (data.Closes[i] == 0 && data.Opens[i] == 0) continue; // 跳过无效数据点
             list.Add(new StockKLine
             {
                 Symbol = symbol,
@@ -282,6 +314,7 @@ public class YahooFinanceStockService : IStockDataService
         return list;
     }
 
+    /// <summary>安全从 JSON 元素提取 decimal（支持 raw 嵌套格式）</summary>
     private static decimal GetDecimal(JsonElement e, string prop)
     {
         if (e.ValueKind != JsonValueKind.Object) return 0;
@@ -302,6 +335,9 @@ public class YahooFinanceStockService : IStockDataService
     private static decimal ToDecimal(JsonElement e) =>
         e.ValueKind == JsonValueKind.Number ? e.GetDecimal() : 0;
 
+    // ── 内部数据结构 ───────────────────────────────────────
+
+    /// <summary>Yahoo v8 Chart API 返回的完整图表数据</summary>
     private struct ChartData
     {
         public MetaData Meta;
@@ -309,12 +345,14 @@ public class YahooFinanceStockService : IStockDataService
         public decimal[] Opens, Highs, Lows, Closes, Volumes;
     }
 
+    /// <summary>图表元数据（当前快照）</summary>
     private struct MetaData
     {
         public string Name;
         public decimal Price, PreviousClose, High, Low, Open, Volume;
     }
 
+    /// <summary>Yahoo v10 quoteSummary 返回的财务摘要数据</summary>
     private struct SummaryData
     {
         public string Name;

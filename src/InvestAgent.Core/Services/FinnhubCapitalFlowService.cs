@@ -5,6 +5,13 @@ using Microsoft.Extensions.Logging;
 
 namespace InvestAgent.Core.Services;
 
+/// <summary>
+/// Finnhub 资金流数据服务。
+/// 注意：Finnhub 对个股无直接"资金流"接口，
+/// 此实现使用 insider-sentiment（内部人情绪）指标进行近似估算，
+/// 所有返回数据均标记 IsApproximate=true。
+/// 资金流功能可能已按产品要求移除。
+/// </summary>
 public class FinnhubCapitalFlowService
 {
     private readonly HttpClient _http;
@@ -20,6 +27,10 @@ public class FinnhubCapitalFlowService
         _logger = logger;
     }
 
+    /// <summary>
+    /// 获取资金流数据（近似估算）。
+    /// 如果 Finnhub 未启用或 API Key 未配置，返回不可用标记。
+    /// </summary>
     public async Task<List<CapitalFlowItem>> GetCapitalFlowAsync(string symbol, int days)
     {
         if (!_options.FinnhubEnabled || string.IsNullOrWhiteSpace(_options.FinnhubApiKey))
@@ -27,7 +38,7 @@ public class FinnhubCapitalFlowService
             return [CreateUnavailable(symbol, "Finnhub 未启用或未配置 API Key。")];
         }
 
-        // Finnhub 对个股“资金流”无直接等价接口，这里用 sentiment 近似，显式标记为 approximate。
+        // Finnhub 对个股资金流无直接等价接口，利用 insider-sentiment 近似
         var from = DateTime.UtcNow.AddDays(-Math.Max(days, 1)).ToString("yyyy-MM-dd");
         var to = DateTime.UtcNow.ToString("yyyy-MM-dd");
         var url = $"https://finnhub.io/api/v1/stock/insider-sentiment?symbol={Uri.EscapeDataString(symbol)}&from={from}&to={to}&token={_options.FinnhubApiKey}";
@@ -44,7 +55,9 @@ public class FinnhubCapitalFlowService
             var rows = new List<CapitalFlowItem>();
             foreach (var item in data.EnumerateArray().Take(days))
             {
+                // change 字段映射为主力净流入（乘以 1,000,000 作为近似量级）
                 var change = GetDecimal(item, "change");
+                // mspr（月买入卖出比率）映射为中单/小单
                 var mspr = GetDecimal(item, "mspr");
                 var date = DateTime.Now;
                 if (item.TryGetProperty("year", out var y) && item.TryGetProperty("month", out var m))
@@ -77,6 +90,7 @@ public class FinnhubCapitalFlowService
         }
     }
 
+    /// <summary>创建数据不可用的占位条目</summary>
     private static CapitalFlowItem CreateUnavailable(string symbol, string note) => new()
     {
         Symbol = symbol,
@@ -87,6 +101,7 @@ public class FinnhubCapitalFlowService
         DataNote = note
     };
 
+    /// <summary>安全地从 JSON 元素中提取 decimal 值</summary>
     private static decimal GetDecimal(JsonElement e, string prop)
     {
         if (!e.TryGetProperty(prop, out var p)) return 0;
@@ -94,6 +109,7 @@ public class FinnhubCapitalFlowService
         return 0;
     }
 
+    /// <summary>带缓存的 HTTP GET 请求</summary>
     private async Task<string> CachedGetAsync(string url, TimeSpan ttl)
     {
         var cached = await _cache.GetAsync(url);
@@ -104,4 +120,3 @@ public class FinnhubCapitalFlowService
         return text;
     }
 }
-

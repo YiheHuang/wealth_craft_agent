@@ -5,6 +5,12 @@ using Microsoft.Extensions.Logging;
 
 namespace InvestAgent.Core.Services;
 
+/// <summary>
+/// Alpha Vantage 新闻数据服务。
+/// 通过 Alpha Vantage 的 NEWS_SENTIMENT 接口获取新闻数据，
+/// 包含情绪标签（bullish/bearish/neutral）的解析和转换。
+/// 支持 API Key 未配置时的优雅降级。
+/// </summary>
 public class AlphaVantageNewsService
 {
     private readonly HttpClient _http;
@@ -20,8 +26,13 @@ public class AlphaVantageNewsService
         _logger = logger;
     }
 
+    /// <summary>
+    /// 获取最新新闻列表。
+    /// 如果 Alpha Vantage 未启用，返回数据不可用占位条目。
+    /// </summary>
     public async Task<List<NewsItem>> GetLatestNewsAsync(string symbol, int count)
     {
+        // 未启用时的降级处理
         if (!_options.AlphaVantageEnabled || string.IsNullOrWhiteSpace(_options.AlphaVantageApiKey))
         {
             return [new NewsItem
@@ -45,6 +56,7 @@ public class AlphaVantageNewsService
             using var doc = JsonDocument.Parse(json);
             if (!doc.RootElement.TryGetProperty("feed", out var feed) || feed.ValueKind != JsonValueKind.Array)
             {
+                // API 返回格式不符合预期时的降级
                 return [new NewsItem
                 {
                     Title = "新闻数据暂无",
@@ -63,6 +75,8 @@ public class AlphaVantageNewsService
                 var summary = item.TryGetProperty("summary", out var s) ? s.GetString() ?? "" : "";
                 var source = item.TryGetProperty("source", out var src) ? src.GetString() ?? "Alpha Vantage" : "Alpha Vantage";
                 var articleUrl = item.TryGetProperty("url", out var uu) ? uu.GetString() ?? "" : "";
+
+                // 情绪标签映射：bearish → negative, bullish → positive, 其余 → neutral
                 var sentimentLabel = item.TryGetProperty("overall_sentiment_label", out var sl)
                     ? sl.GetString()?.ToLowerInvariant() ?? "neutral"
                     : "neutral";
@@ -95,6 +109,7 @@ public class AlphaVantageNewsService
             _logger.LogWarning(ex, "AlphaVantage 新闻解析失败");
         }
 
+        // 所有尝试均失败时的最终降级
         if (result.Count == 0)
         {
             result.Add(new NewsItem
@@ -114,6 +129,7 @@ public class AlphaVantageNewsService
         return result;
     }
 
+    /// <summary>带缓存的 HTTP GET 请求</summary>
     private async Task<string> CachedGetAsync(string url, TimeSpan ttl)
     {
         var cached = await _cache.GetAsync(url);

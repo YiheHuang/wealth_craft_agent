@@ -4,7 +4,14 @@ using InvestAgent.Console.UI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
-// 解析命令行参数: <api-key> [--proxy url] [--source name]
+/// <summary>
+/// InvestAgent 控制台应用程序入口点。
+/// 解析命令行参数，配置 DI 容器，启动终端交互界面。
+///
+/// 用法：dotnet run -- &lt;api-key&gt; [--proxy url] [--source name] [--alpha-key key] [--finnhub-key key]
+/// </summary>
+
+// ── 命令行参数解析 ────────────────────────────────────
 var apiKey = "";
 string? proxyUrl = null;
 var dataSource = "composite";
@@ -25,6 +32,7 @@ for (int i = 0; i < args.Length; i++)
         apiKey = args[i];
 }
 
+// ── 参数校验 ──────────────────────────────────────────
 if (string.IsNullOrEmpty(apiKey))
 {
     Console.WriteLine("用法: dotnet run -- <api-key> [--proxy url] [--source name]");
@@ -35,6 +43,7 @@ if (string.IsNullOrEmpty(apiKey))
     return 1;
 }
 
+// ── 配置选项 ──────────────────────────────────────────
 var options = new AgentOptions
 {
     ApiKey = apiKey,
@@ -50,14 +59,16 @@ Console.WriteLine($"[数据源] {options.DataSource}");
 if (!string.IsNullOrEmpty(options.ProxyUrl))
     Console.WriteLine($"[代理] {options.ProxyUrl}");
 
+// ── DI 容器构建 ──────────────────────────────────────
 var services = new ServiceCollection();
 services.AddLogging(b => b.AddConsole().SetMinimumLevel(LogLevel.Warning));
 services.AddSingleton(options);
-services.AddInvestAgent(options);
-services.AddSingleton<ConsoleUI>();
+services.AddInvestAgent(options);       // 注册所有核心服务
+services.AddSingleton<ConsoleUI>();     // 注册终端 UI
 
 var provider = services.BuildServiceProvider();
 
+// ── 启动应用 ─────────────────────────────────────────
 try
 {
     var ui = provider.GetRequiredService<ConsoleUI>();

@@ -8,6 +8,10 @@ using System.Text.RegularExpressions;
 
 namespace InvestAgent.Core.Agent;
 
+/// <summary>
+/// Agent Prompt 运行器——管理 LLM 调用的完整生命周期。
+/// 包括聊天历史组装、流式输出推送、推理标签（&lt;think&gt; 等）过滤和网络异常重试。
+/// </summary>
 public class AgentPromptRunner : IAgentPromptRunner
 {
     private const int MinStreamingNotificationIntervalMs = 80;

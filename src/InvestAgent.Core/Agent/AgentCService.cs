@@ -6,6 +6,10 @@ using InvestAgent.Core.Services;
 
 namespace InvestAgent.Core.Agent;
 
+/// <summary>
+/// Agent C —— 新闻与情绪分析服务。
+/// 负责新闻数据的抓取、情绪过滤、结构化 JSON 解析以及 LLM 驱动的新闻分析报告生成。
+/// </summary>
 public class AgentCService : ISubAgentService
 {
     private readonly IStockDataService _stockDataService;

@@ -6,6 +6,11 @@ using Microsoft.Extensions.Logging;
 
 namespace InvestAgent.Core.Agent;
 
+/// <summary>
+/// Agent 会话工厂的默认实现。
+/// 创建新会话时注入系统提示词并初始化空状态；
+/// 恢复会话时重建对话记忆并逐条回放历史消息以恢复上下文。
+/// </summary>
 public class AgentSessionFactory : IAgentSessionFactory
 {
     private readonly AgentOptions _options;
@@ -22,6 +27,7 @@ public class AgentSessionFactory : IAgentSessionFactory
         _systemPromptProvider = systemPromptProvider;
     }
 
+    /// <inheritdoc />
     public AgentSessionContext Create(string symbol, string stockName = "", long sessionId = 0)
     {
         var state = new AnalysisSessionState
@@ -36,9 +42,12 @@ public class AgentSessionFactory : IAgentSessionFactory
         return new AgentSessionContext(CreateMemory(), state);
     }
 
+    /// <inheritdoc />
     public AgentSessionContext Restore(PersistedAnalysisSession persistedSession)
     {
         var memory = CreateMemory();
+
+        // 按轮次和时间顺序回放历史消息，重建对话记忆
         foreach (var message in persistedSession.Messages.OrderBy(x => x.TurnIndex).ThenBy(x => x.CreatedAt))
         {
             switch (message.Role)
@@ -59,6 +68,7 @@ public class AgentSessionFactory : IAgentSessionFactory
             persistedSession.WorkflowRuns);
     }
 
+    /// <summary>创建带有系统提示词的新对话记忆实例</summary>
     private ConversationMemory CreateMemory()
     {
         return new ConversationMemory(

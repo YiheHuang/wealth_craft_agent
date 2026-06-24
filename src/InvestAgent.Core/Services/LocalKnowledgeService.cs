@@ -5,18 +5,39 @@ using Microsoft.Extensions.Logging;
 
 namespace InvestAgent.Core.Services;
 
+/// <summary>本地知识库服务接口</summary>
 public interface ILocalKnowledgeService
 {
+    /// <summary>按主题和查询搜索本地知识文档</summary>
+    /// <param name="topic">知识主题（目前支持 "chan"）</param>
+    /// <param name="query">搜索查询</param>
+    /// <param name="topN">返回最相关的前 N 条结果</param>
     List<string> Search(string topic, string query, int topN = 3);
+
+    /// <summary>搜索缠论相关图片资源</summary>
+    /// <param name="query">搜索关键词</param>
+    /// <param name="topN">返回最大数量</param>
     List<ChanImageResource> SearchChanImages(string query, int topN = 6);
+
+    /// <summary>获取缠论标准分析模板</summary>
     string GetChanAnalysisTemplate();
 }
 
+/// <summary>
+/// 本地知识库服务的默认实现。
+/// 从项目 docs/ 目录加载缠论文档和图片索引，
+/// 支持基于关键词匹配的文档检索和图片搜索。
+/// 数据在首次访问时延迟加载（Lazy）。
+/// </summary>
 public class LocalKnowledgeService : ILocalKnowledgeService
 {
     private readonly ILogger<LocalKnowledgeService> _logger;
     private readonly string _docsRoot;
+
+    /// <summary>缠论文档的延迟加载缓存</summary>
     private readonly Lazy<List<string>> _chanDocuments;
+
+    /// <summary>缠论图片资源的延迟加载缓存</summary>
     private readonly Lazy<List<ChanImageResource>> _chanImages;
 
     public LocalKnowledgeService(ILogger<LocalKnowledgeService> logger)
@@ -27,26 +48,29 @@ public class LocalKnowledgeService : ILocalKnowledgeService
         _chanImages = new Lazy<List<ChanImageResource>>(LoadChanImages);
     }
 
+    /// <inheritdoc />
     public List<string> Search(string topic, string query, int topN = 3)
     {
         if (!string.Equals(topic, "chan", StringComparison.OrdinalIgnoreCase))
             return new List<string>();
 
         var docs = _chanDocuments.Value;
-        if (docs.Count == 0)
-            return new List<string>();
+        if (docs.Count == 0) return new List<string>();
 
+        // 将文档拆分为 Markdown 二级标题段落（## 开头）
         var sections = docs
             .SelectMany(doc => Regex.Split(doc, @"(?=^##\s+)", RegexOptions.Multiline))
             .Where(x => !string.IsNullOrWhiteSpace(x) && x.Trim().Length > 12)
             .ToList();
 
-        var keywords = Regex.Matches(query ?? "", @"[\u4e00-\u9fa5A-Za-z0-9]+")
+        // 提取搜索关键词
+        var keywords = Regex.Matches(query ?? "", @"[一-龥A-Za-z0-9]+")
             .Select(x => x.Value.Trim())
             .Where(x => x.Length >= 1)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
+        // 基于关键词命中次数排序
         var ranked = sections
             .Select(section => new
             {
@@ -61,28 +85,20 @@ public class LocalKnowledgeService : ILocalKnowledgeService
             .Select(x => x.Section)
             .ToList();
 
-        if (ranked.Count > 0)
-            return ranked;
-
-        return sections.Take(Math.Max(1, topN)).ToList();
+        return ranked.Count > 0 ? ranked : sections.Take(Math.Max(1, topN)).ToList();
     }
 
+    /// <inheritdoc />
     public List<ChanImageResource> SearchChanImages(string query, int topN = 6)
     {
         var images = _chanImages.Value;
-        if (images.Count == 0)
-            return new List<ChanImageResource>();
+        if (images.Count == 0) return new List<ChanImageResource>();
 
         var keywords = BuildImageSearchKeywords(query);
-        if (keywords.Count == 0)
-            keywords.Add("chart-example");
+        if (keywords.Count == 0) keywords.Add("chart-example");
 
         return images
-            .Select(image => new
-            {
-                Image = image,
-                Score = ScoreImage(image, keywords)
-            })
+            .Select(image => new { Image = image, Score = ScoreImage(image, keywords) })
             .Where(x => x.Score > 0)
             .OrderByDescending(x => x.Score)
             .ThenBy(x => x.Image.Collection == "illustrated" ? 0 : 1)
@@ -93,6 +109,7 @@ public class LocalKnowledgeService : ILocalKnowledgeService
             .ToList();
     }
 
+    /// <inheritdoc />
     public string GetChanAnalysisTemplate()
     {
         return """
@@ -106,6 +123,9 @@ public class LocalKnowledgeService : ILocalKnowledgeService
             """;
     }
 
+    // ── 文档加载 ──────────────────────────────────────────
+
+    /// <summary>从 docs/ 目录加载 chan_theory*.md 文件</summary>
     private List<string> LoadChanDocuments()
     {
         try
@@ -122,11 +142,8 @@ public class LocalKnowledgeService : ILocalKnowledgeService
                 return new List<string>();
             }
 
-            return files
-                .Where(File.Exists)
-                .Select(File.ReadAllText)
-                .Where(text => !string.IsNullOrWhiteSpace(text))
-                .ToList();
+            return files.Where(File.Exists).Select(File.ReadAllText)
+                .Where(text => !string.IsNullOrWhiteSpace(text)).ToList();
         }
         catch (Exception ex)
         {
@@ -135,6 +152,7 @@ public class LocalKnowledgeService : ILocalKnowledgeService
         }
     }
 
+    /// <summary>从 docs/chan_images/manifest.json 加载图片索引</summary>
     private List<ChanImageResource> LoadChanImages()
     {
         try
@@ -185,14 +203,18 @@ public class LocalKnowledgeService : ILocalKnowledgeService
         }
     }
 
+    // ── 关键词提取与图片评分 ──────────────────────────────
+
+    /// <summary>从查询文本中提取搜索关键词，并添加领域映射标签</summary>
     private static List<string> BuildImageSearchKeywords(string query)
     {
         var raw = query ?? "";
-        var keywords = Regex.Matches(raw, @"[\u4e00-\u9fa5A-Za-z0-9\-]+")
+        var keywords = Regex.Matches(raw, @"[一-龥A-Za-z0-9\-]+")
             .Select(x => x.Value.Trim())
             .Where(x => x.Length >= 1)
             .ToList();
 
+        // 中文关键词 → 英文领域标签映射
         void AddIfContains(string keyword, string tag)
         {
             if (raw.Contains(keyword, StringComparison.OrdinalIgnoreCase))
@@ -201,7 +223,6 @@ public class LocalKnowledgeService : ILocalKnowledgeService
 
         AddIfContains("图", "chart-example");
         AddIfContains("图解", "chart-example");
-        AddIfContains("案例", "chart-example");
         AddIfContains("缠论", "chart-example");
         AddIfContains("缠中说禅", "chart-example");
         AddIfContains("分型", "fractal");
@@ -209,75 +230,62 @@ public class LocalKnowledgeService : ILocalKnowledgeService
         AddIfContains("线段", "segment");
         AddIfContains("中枢", "zhongshu");
         AddIfContains("背驰", "divergence");
-        AddIfContains("背弛", "divergence");
         AddIfContains("买点", "buy-sell-point");
         AddIfContains("卖点", "buy-sell-point");
         AddIfContains("区间套", "interval-nesting");
         AddIfContains("同级别", "same-level-decomposition");
-        AddIfContains("连接", "connection-composition");
         AddIfContains("走势", "trend-structure");
         AddIfContains("MACD", "macd");
 
-        var distinct = keywords.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        if (distinct.Count == 0)
-            distinct.Add("chart-example");
-
-        return distinct;
+        return keywords.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
     }
 
+    /// <summary>对图片进行关键词匹配评分</summary>
     private static int ScoreImage(ChanImageResource image, List<string> keywords)
     {
+        // 构建全文搜索文本（所有元数据拼接）
         var haystack = string.Join(" ", new[]
         {
-            image.Id,
-            image.Collection,
-            image.ArticleKey,
-            image.Title,
-            image.Date,
-            image.OriginalFileName,
-            image.Alt,
-            image.ContextBefore,
-            image.ContextAfter,
-            string.Join(" ", image.Tags)
+            image.Id, image.Collection, image.ArticleKey, image.Title,
+            image.Date, image.OriginalFileName, image.Alt,
+            image.ContextBefore, image.ContextAfter, string.Join(" ", image.Tags)
         });
 
         var score = 0;
         foreach (var keyword in keywords)
         {
-            if (string.IsNullOrWhiteSpace(keyword))
-                continue;
+            if (string.IsNullOrWhiteSpace(keyword)) continue;
 
+            // 标签精确匹配加权
             if (image.Tags.Any(tag => string.Equals(tag, keyword, StringComparison.OrdinalIgnoreCase)))
                 score += 8;
 
+            // 全文模糊匹配
             score += Regex.Matches(haystack, Regex.Escape(keyword), RegexOptions.IgnoreCase).Count;
         }
 
-        if (image.Collection == "illustrated")
-            score += 1;
+        // illustrated 集合轻微加权
+        if (image.Collection == "illustrated") score += 1;
 
         return score;
     }
 
+    // ── JSON 辅助 ──────────────────────────────────────────
+
     private static string GetString(JsonElement element, string name)
     {
         return element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
-            ? value.GetString() ?? ""
-            : "";
+            ? value.GetString() ?? "" : "";
     }
 
     private static int GetInt(JsonElement element, string name)
     {
-        return element.TryGetProperty(name, out var value) && value.TryGetInt32(out var result)
-            ? result
-            : 0;
+        return element.TryGetProperty(name, out var value) && value.TryGetInt32(out var result) ? result : 0;
     }
 
     private static int? GetNullableInt(JsonElement element, string name)
     {
-        if (!element.TryGetProperty(name, out var value) || value.ValueKind == JsonValueKind.Null)
-            return null;
-
+        if (!element.TryGetProperty(name, out var value) || value.ValueKind == JsonValueKind.Null) return null;
         return value.TryGetInt32(out var result) ? result : null;
     }
 
@@ -285,7 +293,6 @@ public class LocalKnowledgeService : ILocalKnowledgeService
     {
         if (!element.TryGetProperty(name, out var value) || value.ValueKind != JsonValueKind.Array)
             return new List<string>();
-
         return value.EnumerateArray()
             .Where(x => x.ValueKind == JsonValueKind.String)
             .Select(x => x.GetString() ?? "")
@@ -293,6 +300,7 @@ public class LocalKnowledgeService : ILocalKnowledgeService
             .ToList();
     }
 
+    /// <summary>解析 docs/ 目录的绝对路径（向上搜索项目根目录）</summary>
     private static string ResolveDocsRoot()
     {
         var current = AppContext.BaseDirectory;
@@ -300,8 +308,7 @@ public class LocalKnowledgeService : ILocalKnowledgeService
         while (dir is not null)
         {
             var docs = Path.Combine(dir.FullName, "docs");
-            if (Directory.Exists(docs))
-                return docs;
+            if (Directory.Exists(docs)) return docs;
             dir = dir.Parent;
         }
         return Path.Combine(Directory.GetCurrentDirectory(), "docs");

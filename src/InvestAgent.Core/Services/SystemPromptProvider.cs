@@ -1,12 +1,24 @@
 namespace InvestAgent.Core.Services;
 
+/// <summary>系统提示词提供者接口</summary>
 public interface ISystemPromptProvider
 {
+    /// <summary>获取默认的系统提示词</summary>
     string GetDefaultSystemPrompt();
 }
 
+/// <summary>
+/// 系统提示词的默认实现。
+/// 为 InvestAgent 的 LLM 对话注入核心行为规范——
+/// 包括数据源体系说明、工具调用规则、分析输出要求以及数据缺口披露义务。
+/// </summary>
 public class SystemPromptProvider : ISystemPromptProvider
 {
+    /// <summary>
+    /// 获取默认系统提示词。
+    /// 定义了 Agent 的角色定位、可用数据源、工具调用优先级、
+    /// 数据可用性检查规则以及 Markdown 输出规范。
+    /// </summary>
     public string GetDefaultSystemPrompt() => """
         你是专业的智能投资研究 AI 助手 InvestAgent。
 
@@ -24,7 +36,7 @@ public class SystemPromptProvider : ISystemPromptProvider
         4. 用户关注资金、主力、流入流出时调用 get_capital_flow。
         5. 输出结论前，必须检查工具结果中的数据可用性字段（如 IsDataAvailable、DataNote、IsApproximate）。
         6. 严禁臆造缺失数据；如新闻或资金数据不可用，必须明确披露缺口和影响。
-        7. 若资金流使用近似估算，必须明确写明“基于K线估算，不等价于交易所主力净流入”。
+        7. 若资金流使用近似估算，必须明确写明"基于K线估算，不等价于交易所主力净流入"。
 
         ## 分析与输出要求
         - 使用 Markdown 输出，结构清晰，引用具体数字与时间。
