@@ -1,0 +1,31 @@
+\begin{tikzpicture}[
+  node distance=1.1cm and 1.25cm,
+  box/.style={draw=iaInk, line width=.85pt, rounded corners=4pt, align=center, minimum height=1.0cm, text width=3.0cm, inner sep=5pt},
+  bluebox/.style={box, fill=iaBlue, draw=blue!55!black},
+  greenbox/.style={box, fill=iaGreen, draw=green!45!black},
+  redbox/.style={box, fill=iaRed, draw=red!55!black},
+  goldbox/.style={box, fill=iaGold, draw=orange!70!black},
+  graybox/.style={box, fill=iaGray, draw=gray!65!black},
+  arr/.style={-{Latex[length=2.5mm]}, line width=.75pt, draw=iaInk},
+  darr/.style={arr, dashed}
+]
+  \node[bluebox] (ui) {WPF 桌面端\\输入、图表、多轮对话\\步骤可观测};
+  \node[goldbox, right=of ui, text width=3.45cm] (a) {Agent A 编排层\\会话创建、任务规划\\状态合成、最终报告};
+  \node[greenbox, right=of a, yshift=2.65cm] (b) {Agent B\\K 线结构\\缠论 RAG\\历史走势 RAG};
+  \node[greenbox, right=of a] (c) {Agent C\\公司新闻\\行业新闻\\事件情绪归因};
+  \node[greenbox, right=of a, yshift=-2.65cm] (d) {Agent D\\财务指标\\盈利 / 成长\\负债趋势};
+  \node[graybox, right=1.35cm of c, text width=3.9cm, minimum height=3.35cm] (tools) {工具与数据层\\StockPrice / MarketNews\\FinancialReport / TechnicalAnalysis\\LocalKnowledge\\东方财富 / Yahoo / Finnhub\\缠论文档与历史案例库};
+  \node[redbox, below=1.2cm of tools, text width=3.9cm] (reply) {回复反馈\\子 Agent 分析结果\\综合结论与风险提示};
+  \node[bluebox, below=1.2cm of a, text width=3.45cm] (mem) {Memory 与持久化\\ConversationMemory\\SessionState\\SQLite 分析历史};
+
+  \draw[arr] (ui) -- (a);
+  \draw[arr] (a) -- (b);
+  \draw[arr] (a) -- (c);
+  \draw[arr] (a) -- (d);
+  \draw[arr] (b.east) -- (tools.west);
+  \draw[arr] (c.east) -- (tools.west);
+  \draw[arr] (d.east) -- (tools.west);
+  \draw[arr] (tools) -- (reply);
+  \draw[arr] (reply.west) .. controls +(-2.2,-.7) and +(2.0,-.55) .. (mem.east);
+  \draw[darr] (mem.north) -- (a.south);
+\end{tikzpicture}

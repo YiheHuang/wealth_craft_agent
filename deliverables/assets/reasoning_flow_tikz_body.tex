@@ -1,0 +1,31 @@
+\begin{tikzpicture}[
+  node distance=1.0cm and 1.05cm,
+  box/.style={draw=iaInk, line width=.85pt, rounded corners=4pt, align=center, minimum height=1.02cm, text width=2.85cm, inner sep=5pt},
+  bluebox/.style={box, fill=iaBlue, draw=blue!55!black},
+  greenbox/.style={box, fill=iaGreen, draw=green!45!black},
+  redbox/.style={box, fill=iaRed, draw=red!55!black},
+  goldbox/.style={box, fill=iaGold, draw=orange!70!black},
+  graybox/.style={box, fill=iaGray, draw=gray!65!black},
+  arr/.style={-{Latex[length=2.5mm]}, line width=.75pt, draw=iaInk},
+  looparr/.style={-{Latex[length=2.5mm]}, line width=.8pt, draw=purple!70!black, dashed}
+]
+  \node[bluebox] (input) {用户输入\\股票代码 / 股票名称\\或会话追问};
+  \node[graybox, right=of input] (session) {会话准备\\解析标的\\写入 Memory};
+  \node[goldbox, right=of session] (thought) {Thought\\理解问题\\判断所需信息};
+  \node[bluebox, right=of thought] (action) {Action\\调用工具\\或执行 B/C/D};
+  \node[greenbox, below=1.45cm of action, minimum height=1.18cm] (obs) {Observation\\接收数据\\状态 Patch 回写};
+  \node[goldbox, below=1.05cm of obs, text width=3.1cm] (condition) {条件判断\\信息是否足够回答};
+  \node[redbox, left=1.45cm of condition] (response) {Response\\生成分析结论\\风险提示};
+  \node[graybox, left=of response] (save) {历史保存\\会话记录\\支持回放};
+  \node[goldbox, above=.9cm of action, text width=2.85cm] (guard) {保护机制\\MaxSteps\\异常处理};
+
+  \draw[arr] (input) -- (session);
+  \draw[arr] (session) -- (thought);
+  \draw[arr] (thought) -- (action);
+  \draw[arr] (action) -- (obs);
+  \draw[arr] (obs) -- (condition);
+  \draw[arr] (condition) -- node[above, font=\small] {信息充分} (response);
+  \draw[arr] (response) -- (save);
+  \draw[looparr] (condition.north west) -- node[pos=.55, left, font=\small] {信息不足} (thought.south);
+  \draw[arr] (guard) -- (action);
+\end{tikzpicture}

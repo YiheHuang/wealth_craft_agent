@@ -1,0 +1,115 @@
+\documentclass[UTF8,a4paper,11pt]{ctexart}
+\usepackage[margin=2.2cm]{geometry}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,fit,shapes.geometric}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{longtable}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\hypersetup{colorlinks=true,linkcolor=blue!45!black,urlcolor=blue!45!black}
+\setlength{\emergencystretch}{3em}
+
+\definecolor{iaBlue}{HTML}{EAF3FF}
+\definecolor{iaGreen}{HTML}{ECF7EF}
+\definecolor{iaRed}{HTML}{FFF0EE}
+\definecolor{iaGold}{HTML}{FFF7DF}
+\definecolor{iaGray}{HTML}{F3F5F8}
+\definecolor{iaInk}{HTML}{172033}
+
+\tikzset{
+  box/.style={draw=iaInk, line width=.8pt, rounded corners=4pt, align=center, minimum height=1.1cm, text width=3.1cm, inner sep=5pt},
+  bluebox/.style={box, fill=iaBlue, draw=blue!55!black},
+  greenbox/.style={box, fill=iaGreen, draw=green!45!black},
+  redbox/.style={box, fill=iaRed, draw=red!55!black},
+  goldbox/.style={box, fill=iaGold, draw=orange!70!black},
+  graybox/.style={box, fill=iaGray, draw=gray!65!black},
+  arr/.style={-{Latex[length=2.5mm]}, line width=.75pt, draw=iaInk},
+  darr/.style={arr, dashed}
+}
+
+\title{\heiti WealthCraftAgent 股票分析 Agent 架构设计文档}
+\author{2352048 夏浩博 \quad 2351269 黄一和}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\section{项目概述}
+WealthCraftAgent 是一个基于 .NET 10、WPF 与 Microsoft Semantic Kernel 的股票分析 Agent。项目面向 A 股分析场景，输入股票代码或股票名称后，系统从主营业务、K 线结构、财务报表、新闻动态四个角度生成分析，并支持缠论 RAG、历史相似走势 RAG 与会话内多轮追问。
+
+本项目覆盖课程要求的五个核心要素：通过 OpenAI 兼容接口集成 LLM；通过 \texttt{InvestAgentLoop} 和会话编排实现 Thought--Action--Observation 推理循环；通过 Semantic Kernel 注册多个自定义工具；通过 \texttt{ConversationMemory} 与会话状态保存上下文；通过 WPF 桌面端提供用户交互界面。
+
+\section{总体架构}
+系统采用“桌面 UI + 核心 Agent 编排 + 工具/数据服务”的分层结构。WPF 负责输入、图表、历史记录与流式展示；Core 层负责 Agent 会话、子 Agent 调度、Semantic Kernel 调用、数据抓取和本地知识检索。
+
+\begin{figure}[htbp]
+\centering
+\resizebox{\textwidth}{!}{
+\input{../assets/agent_architecture_tikz_body.tex}}
+\caption{WealthCraftAgent 多 Agent 股票分析架构图}
+\end{figure}
+
+\section{核心组件设计}
+\subsection{LLM 集成}
+项目使用 Microsoft Semantic Kernel 统一管理 LLM 调用。依赖注入在 \texttt{AddInvestAgent} 中完成：读取 \texttt{AgentOptions} 中的模型、接口地址、API Key 和代理配置，创建 Kernel，并通过 \texttt{AddOpenAIChatCompletion} 接入 OpenAI 兼容接口。
+
+LLM 调用分为两类：一类是 \texttt{InvestAgentLoop} 中的自动工具选择，用自动函数选择让模型决定调用哪个 Kernel Function；另一类是多 Agent 编排中的 \texttt{AgentPromptRunner}，负责流式输出、重试、推理标签过滤和图像输入降级。架构图中不把 LLM 单独画成业务节点，而是把它视为工具调用与回复生成过程中的基础能力：B/C/D 先连接到工具与数据层，工具层产生可用于回复的观察结果，再写回 Memory 与持久化模块供 Agent A 继续编排。
+
+\subsection{Agent Loop 与会话编排}
+项目同时保留了通用 ReAct 循环和更适合业务演示的确定性多 Agent 工作流。
+
+\begin{itemize}
+  \item \texttt{InvestAgentLoop} 实现课程要求的 Thought--Action--Observation 循环：每轮先产生 Thought 步骤，调用 LLM，若返回工具调用则执行 Action 并记录 Observation，若无工具调用则输出最终 Response。
+  \item \texttt{SessionAnalysisOrchestrator} 作为 Agent A，负责股票会话创建、初始分析并行调度、追问意图识别、子 Agent 派单和最终报告合成。
+  \item Agent B/C/D 分别处理 K 线、新闻、财务，职责单一，便于扩展和答辩解释。
+\end{itemize}
+
+\begin{figure}[htbp]
+\centering
+\resizebox{\textwidth}{!}{
+\input{../assets/reasoning_flow_tikz_body.tex}}
+\caption{Agent 推理流程图}
+\end{figure}
+
+\section{工具与数据设计}
+\begin{longtable}{p{3.2cm}p{4.2cm}p{7.2cm}}
+\toprule
+插件 / 服务 & 主要能力 & 设计说明\\
+\midrule
+\texttt{StockPrice} & 当前价格、历史日 K、月 K、股票搜索、资金流 & 为 Agent B 和 UI 图表提供行情基础数据；组合数据源优先适配 A 股。\\
+\texttt{FinancialReport} & 关键财务指标、利润分析 & 为 Agent D 提供 ROE、ROA、毛利率、净利率、增长率、负债率等序列。\\
+\texttt{MarketNews} & 新闻抓取、市场情绪 & 为 Agent C 提供公司新闻、行业新闻和情绪线索。\\
+\texttt{Technical} \texttt{Analysis} & MA、RSI、MACD、交易信号 & 支持通用技术指标计算，也可被 ReAct 循环自动调用。\\
+\texttt{LocalKnowledge} & 缠论文档检索、缠论图片检索 & 从 \texttt{docs/} 读取本地知识库，为缠论 RAG 提供文本片段和图例资源。\\
+\bottomrule
+\end{longtable}
+
+数据服务层使用组合模式：\texttt{CompositeStockDataService} 汇聚东方财富、Yahoo、Alpha Vantage、Finnhub 等来源，并配合 \texttt{FileHttpCache} 降低重复请求。历史相似走势 RAG 由 \texttt{HistoricalPatternService} 基于本地案例库提取特征并匹配类似结构，输出样本数量、相似原因和后续收益分布，避免把历史案例误写成确定性预测。
+
+\section{记忆、状态与可观测性}
+\texttt{ConversationMemory} 保存系统提示、用户消息、助手回复和工具返回，超过最大轮次时自动保留最近上下文，避免提示词无限膨胀。会话内结构化状态由 \texttt{AnalysisSessionState} 维护，包括股票信息、K 线缓存、新闻列表、财务序列、各子 Agent 结果、最终报告等。
+
+可观测性通过 \texttt{AgentStep} 实现。每个 Thought、Action、Observation、Response 都会通过 \texttt{IAnalysisStreamingObserver} 推送到 WPF，用户能够看到 Agent 正在抓取数据、检索知识库、生成分析或处理异常。
+
+\section{异步、错误处理与扩展性}
+项目大量使用 \texttt{async/await}：股票数据、新闻、财务指标、LLM 流式输出、初始 B/C/D 并行分析均为异步流程。初始分析中，Agent A 对 B/C/D 使用 \texttt{Task.WhenAll} 并发执行，提高首轮报告生成速度。
+
+错误处理分为三层：LLM 调用失败时返回用户可读错误；工具或子 Agent 失败时记录日志并跳过该模块继续分析；数据不足时在提示词和最终报告中显式说明不确定性。扩展新工具时，只需实现新的服务或 Kernel 插件，并在 DI 中注册；扩展新子 Agent 时，实现 \texttt{ISubAgentService} 即可纳入编排。
+
+\section{课程要求对应关系}
+\begin{tabular}{p{3.6cm}p{10.2cm}}
+\toprule
+课程要求 & 项目实现\\
+\midrule
+LLM 集成 & Semantic Kernel + OpenAI ChatCompletion，支持流式输出和自动函数选择。\\
+推理循环 & \texttt{InvestAgentLoop} 实现 ReAct；\texttt{SessionAnalysisOrchestrator} 实现业务化多 Agent 工作流。\\
+工具调用 & 注册 5 个插件，多于课程要求的 3 个自定义工具。\\
+Memory & \texttt{ConversationMemory}、\texttt{AnalysisSessionState} 与 SQLite 历史记录共同维护上下文。\\
+用户界面 & WPF 桌面端，包含 K 线图、新闻、财务、聊天和历史回放。\\
+加分项 & 多 Agent 协作、RAG、流式输出、可观测步骤、单元测试。\\
+\bottomrule
+\end{tabular}
+
+\end{document}

@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WealthCraftAgent 5 分钟展示</title>
+  <style>
+    :root {
+      --ink: #172033;
+      --muted: #596579;
+      --line: #d8e0ea;
+      --blue: #2e6fb6;
+      --green: #2f8a57;
+      --red: #b9574b;
+      --gold: #b88722;
+      --bg: #f7f9fc;
+      --panel: #ffffff;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--ink); font-family: "Microsoft YaHei", "PingFang SC", Arial, sans-serif; letter-spacing: 0; }
+    .deck { width: 100vw; height: 100vh; position: relative; }
+    .slide { position: absolute; inset: 0; display: none; padding: 54px 72px 58px; background: linear-gradient(180deg, #fbfcfe 0%, #f2f6fb 100%); }
+    .slide.active { display: grid; grid-template-rows: auto 1fr; gap: 22px; }
+    header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid var(--line); padding-bottom: 16px; }
+    h1, h2, h3, p { margin: 0; }
+    h1 { font-size: 50px; line-height: 1.12; max-width: 900px; }
+    h2 { font-size: 36px; line-height: 1.16; max-width: 940px; }
+    h3 { font-size: 23px; line-height: 1.25; }
+    .kicker { color: var(--blue); font-weight: 700; font-size: 18px; margin-bottom: 10px; }
+    .meta { display: none; }
+    .content { min-height: 0; display: grid; align-items: center; }
+    .two { grid-template-columns: 1.02fr .98fr; gap: 32px; }
+    .three { grid-template-columns: repeat(3, 1fr); gap: 20px; }
+    .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 23px; min-height: 116px; box-shadow: 0 12px 28px rgba(23, 32, 51, 0.07); }
+    .text { font-size: 21px; line-height: 1.48; color: #253149; }
+    .bigline { font-size: 28px; line-height: 1.42; font-weight: 650; color: #202b42; }
+    .muted { color: var(--muted); }
+    .tagrow { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
+    .tag { border: 1px solid var(--line); border-left: 5px solid var(--blue); background: white; border-radius: 8px; padding: 12px 16px; font-size: 20px; font-weight: 700; }
+    .tag:nth-child(2), .tag:nth-child(5) { border-left-color: var(--green); }
+    .tag:nth-child(3), .tag:nth-child(6) { border-left-color: var(--red); }
+    .metric { display: flex; align-items: center; gap: 14px; margin: 16px 0; }
+    .dot { width: 15px; height: 15px; border-radius: 50%; flex: 0 0 15px; }
+    .blue { background: var(--blue); }
+    .green { background: var(--green); }
+    .red { background: var(--red); }
+    .gold { background: var(--gold); }
+    .diagram { width: 100%; max-height: 520px; object-fit: contain; border: 1px solid var(--line); border-radius: 8px; background: white; padding: 8px; }
+    .score-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; }
+    .score { background: white; border: 1px solid var(--line); border-radius: 8px; padding: 18px; min-height: 138px; box-shadow: 0 8px 22px rgba(23,32,51,.06); }
+    .score strong { display: block; font-size: 22px; margin-bottom: 12px; }
+    .score span { display: block; font-size: 17px; line-height: 1.42; color: var(--muted); }
+    .feature-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 17px; }
+    .feature { background: #fff; border: 1px solid var(--line); border-top: 5px solid var(--blue); border-radius: 8px; padding: 18px; min-height: 124px; box-shadow: 0 8px 22px rgba(23,32,51,.06); }
+    .feature:nth-child(2), .feature:nth-child(5) { border-top-color: var(--green); }
+    .feature:nth-child(3), .feature:nth-child(6) { border-top-color: var(--red); }
+    .feature strong { display: block; font-size: 22px; margin-bottom: 10px; }
+    .feature span { color: var(--muted); font-size: 17px; line-height: 1.38; }
+    .thanks { display: flex; align-items: center; justify-content: center; min-height: 100%; text-align: center; }
+    .thanks h1 { font-size: 76px; max-width: none; }
+    footer { display: none; }
+    .nav { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); display: flex; gap: 10px; align-items: center; color: var(--muted); font-size: 14px; background: rgba(255,255,255,.92); border: 1px solid var(--line); border-radius: 999px; padding: 6px 10px; box-shadow: 0 8px 22px rgba(23,32,51,.08); }
+    button { border: 1px solid var(--line); background: #fff; color: var(--ink); border-radius: 6px; padding: 8px 12px; cursor: pointer; font-weight: 700; }
+    @media (max-width: 1000px) {
+      .slide { padding: 34px 38px 58px; }
+      h1 { font-size: 40px; }
+      h2 { font-size: 31px; }
+      .two, .three { grid-template-columns: 1fr; }
+      .score-grid, .feature-grid { grid-template-columns: repeat(2, 1fr); }
+      .text { font-size: 20px; }
+      .thanks h1 { font-size: 54px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="deck">
+    <section class="slide active">
+      <header>
+        <div>
+          <div class="kicker">.NET 期末项目</div>
+          <h1>WealthCraftAgent 股票分析 Agent</h1>
+        </div>
+        <div class="meta">5 分钟项目展示<br>2025-2026 学年</div>
+      </header>
+      <div class="content two">
+        <div>
+          <p class="bigline">基于 .NET 10、WPF 与 Semantic Kernel 的多 Agent 股票分析系统。</p>
+          <p class="text muted" style="margin-top:22px;">覆盖主营业务、K 线、财务、新闻，并支持 RAG 与多轮追问。</p>
+        </div>
+        <div class="card">
+          <h2>小组成员</h2>
+          <div class="metric"><span class="dot blue"></span><p class="text">2352048 夏浩博</p></div>
+          <div class="metric"><span class="dot green"></span><p class="text">2351269 黄一和</p></div>
+        </div>
+      </div>
+      <footer><span>WealthCraftAgent</span><span>1 / 6</span></footer>
+    </section>
+
+    <section class="slide">
+      <header>
+        <div>
+          <div class="kicker">课程要求</div>
+          <h2>核心要素覆盖</h2>
+        </div>
+        <div class="meta">核心要素全覆盖</div>
+      </header>
+      <div class="content">
+        <div class="score-grid">
+          <div class="score"><strong>LLM</strong><span>Semantic Kernel 接入 ChatCompletion。</span></div>
+          <div class="score"><strong>Agent Loop</strong><span>Thought / Action / Observation / Response。</span></div>
+          <div class="score"><strong>Tools</strong><span>行情、新闻、财务、技术分析、知识库。</span></div>
+          <div class="score"><strong>Memory</strong><span>对话上下文与会话状态。</span></div>
+          <div class="score"><strong>UI</strong><span>WPF 图表、报告、步骤流、历史记录。</span></div>
+        </div>
+      </div>
+      <footer><span>加分项：多 Agent 协作、RAG、流式输出、可观测性、单元测试</span><span>2 / 6</span></footer>
+    </section>
+
+    <section class="slide">
+      <header>
+        <div>
+          <div class="kicker">架构</div>
+          <h2>Agent A 编排，B/C/D 专业分析</h2>
+        </div>
+        <div class="meta">多 Agent 协作</div>
+      </header>
+      <div class="content">
+        <img class="diagram" src="../assets/agent_architecture_diagram.png" alt="WealthCraftAgent 多 Agent 架构图">
+      </div>
+      <footer><span>工具层产生回复反馈，Memory 与持久化为 Agent A 提供上下文</span><span>3 / 6</span></footer>
+    </section>
+
+    <section class="slide">
+      <header>
+        <div>
+          <div class="kicker">流程</div>
+          <h2>ReAct 循环与业务工作流</h2>
+        </div>
+        <div class="meta">Thought / Action / Observation</div>
+      </header>
+      <div class="content">
+        <img class="diagram" src="../assets/reasoning_flow_diagram.png" alt="Agent 推理流程图">
+      </div>
+      <footer><span>每一步都以 AgentStep 推送到界面，便于观察、调试和答辩说明</span><span>4 / 6</span></footer>
+    </section>
+
+    <section class="slide">
+      <header>
+        <div>
+          <div class="kicker">功能</div>
+          <h2>股票分析闭环</h2>
+        </div>
+        <div class="meta">功能闭环</div>
+      </header>
+      <div class="content">
+        <div class="feature-grid">
+          <div class="feature"><strong>主营业务</strong><span>公司业务与行业定位。</span></div>
+          <div class="feature"><strong>K 线结构</strong><span>日 K、月 K、关键价位。</span></div>
+          <div class="feature"><strong>财务趋势</strong><span>盈利、成长、负债。</span></div>
+          <div class="feature"><strong>新闻动态</strong><span>公司新闻与行业事件。</span></div>
+          <div class="feature"><strong>RAG 增强</strong><span>缠论文档与历史案例。</span></div>
+          <div class="feature"><strong>多轮追问</strong><span>按意图局部更新分析。</span></div>
+        </div>
+      </div>
+      <footer><span>系统输出始终保留风险提示：分析仅供学习研究参考</span><span>5 / 6</span></footer>
+    </section>
+
+    <section class="slide">
+      <div></div>
+      <div class="thanks">
+        <h1>感谢老师指导</h1>
+      </div>
+      <footer><span></span><span>6 / 6</span></footer>
+    </section>
+  </main>
+
+  <div class="nav">
+    <button id="prev" aria-label="上一页">‹</button>
+    <span id="page">1 / 6</span>
+    <button id="next" aria-label="下一页">›</button>
+  </div>
+
+  <script>
+    const slides = Array.from(document.querySelectorAll('.slide'));
+    const page = document.querySelector('#page');
+    let index = Math.min(slides.length - 1, Math.max(0, Number(location.hash.slice(1)) - 1 || 0));
+    function show(next) {
+      index = Math.max(0, Math.min(slides.length - 1, next));
+      slides.forEach((slide, i) => slide.classList.toggle('active', i === index));
+      page.textContent = `${index + 1} / ${slides.length}`;
+      history.replaceState(null, '', `#${index + 1}`);
+    }
+    document.querySelector('#prev').addEventListener('click', () => show(index - 1));
+    document.querySelector('#next').addEventListener('click', () => show(index + 1));
+    window.addEventListener('keydown', event => {
+      if (['ArrowRight', 'PageDown', ' '].includes(event.key)) show(index + 1);
+      if (['ArrowLeft', 'PageUp', 'Backspace'].includes(event.key)) show(index - 1);
+      if (event.key === 'Home') show(0);
+      if (event.key === 'End') show(slides.length - 1);
+    });
+    show(index);
+  </script>
+</body>
+</html>
